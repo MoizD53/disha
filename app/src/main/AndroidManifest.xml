@@ -53,6 +53,7 @@
             android:name=".service.LocationTrackingService"
             android:enabled="true"
             android:exported="false"
+            android:stopWithTask="false"
             android:foregroundServiceType="location" />
 
         <receiver

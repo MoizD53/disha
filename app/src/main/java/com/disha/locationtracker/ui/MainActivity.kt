@@ -404,7 +404,38 @@ class MainActivity : AppCompatActivity() {
                     .setPositiveButton("Grant Access") { _, _ ->
                         backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                     }
-                    .setNegativeButton("Later", null)
+                    .setNegativeButton("Later") { _, _ ->
+                        checkBatteryOptimization()
+                    }
+                    .show()
+            } else {
+                checkBatteryOptimization()
+            }
+        } else {
+            checkBatteryOptimization()
+        }
+    }
+
+    private fun checkBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                AlertDialog.Builder(this)
+                    .setTitle("Battery Optimization")
+                    .setMessage("To ensure continuous 24/7 location monitoring when your device is locked or minimized, please allow DISHA to run Unrestricted in Battery Optimization settings.")
+                    .setPositiveButton("Open Settings") { _, _ ->
+                        try {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = android.net.Uri.parse("package:$packageName")
+                            }
+                            startActivity(intent)
+                        } catch (e: Exception) {
+                            try {
+                                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    .setNegativeButton("Dismiss", null)
                     .show()
             }
         }

@@ -321,6 +321,29 @@ class LocationTrackingService : Service(), LocationListener {
         DishaApplication.instance.prefs.isSosActive = false
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val prefs = DishaApplication.instance.prefs
+        // If the officer is logged in, ensure foreground tracking service recovers if OS kills the task
+        if (prefs.isLoggedIn && hasLocationPermissions()) {
+            val restartIntent = Intent(applicationContext, LocationTrackingService::class.java).apply {
+                action = ACTION_START_TRACKING
+            }
+            val restartPendingIntent = PendingIntent.getService(
+                applicationContext,
+                1002,
+                restartIntent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager
+            alarmManager?.set(
+                android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                android.os.SystemClock.elapsedRealtime() + 1000L,
+                restartPendingIntent
+            )
+        }
+    }
+
     override fun onDestroy() {
         stopTracking()
         super.onDestroy()
