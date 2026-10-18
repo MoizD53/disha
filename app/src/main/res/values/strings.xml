@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Calculator</string>
+    <string name="disha_app_name">DISHA Tracker</string>
+    <string name="login_title">DISHA Command Center</string>
+    <string name="login_subtitle">Field Personnel Sign In</string>
+    <string name="server_url">Server URL</string>
+    <string name="username">Username</string>
+    <string name="password">Password</string>
+    <string name="login_button">Sign In</string>
+    <string name="logging_in">Signing in...</string>
+    
+    <string name="status_tracking_active">TRACKING ACTIVE</string>
+    <string name="status_waiting_gps">WAITING FOR GPS</string>
+    <string name="status_location_off">LOCATION IS OFF</string>
+    <string name="status_permission_required">PERMISSION REQUIRED</string>
+    <string name="status_sos_active">EMERGENCY SOS ACTIVE</string>
+    
+    <string name="trigger_sos">TRIGGER SOS</string>
+    <string name="cancel_sos">Cancel SOS</string>
+    <string name="sync_now">Sync Cached Records</string>
+    <string name="logout">Sign Out</string>
+    
+    <string name="tracking_notification_channel_id">disha_tracking_channel</string>
+    <string name="tracking_notification_channel_name">DISHA Continuous Tracking</string>
+    <string name="tracking_notification_title">DISHA 24/7 Location Service</string>
+    <string name="tracking_notification_text">Continuous location tracking is active for field personnel safety.</string>
+    
+    <string name="consent_title">Officer Safety &amp; Location Tracking Disclosure</string>
+    <string name="consent_body">While signed in to DISHA, your device GPS coordinates, accuracy, battery status, and network state are transmitted continuously to the DISHA Command Center 24/7 for operational safety and dispatch.\n\nTracking operates via an Android foreground service with a persistent notification. Signing out of DISHA will cease all location tracking.</string>
+    <string name="consent_agree">I Understand &amp; Continue</string>
+    <string name="consent_cancel">Sign Out</string>
+
+    <string name="limitation_notice">NOTICE: Location tracking requires device power, active OS permissions, and functional hardware. Tracking cannot operate if the device is powered off, battery is depleted, app is uninstalled, or location permissions are revoked.</string>
+</resources>

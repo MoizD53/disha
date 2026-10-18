@@ -1,0 +1,412 @@
+package com.disha.locationtracker.ui
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import android.os.Build
+import android.os.Bundle
+import android.provider.Settings
+import android.view.LayoutInflater
+import android.view.View
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
+import androidx.lifecycle.lifecycleScope
+import com.disha.locationtracker.DishaApplication
+import com.disha.locationtracker.R
+import com.disha.locationtracker.data.model.LocationTelemetryPayload
+import com.disha.locationtracker.databinding.ActivityMainBinding
+import com.disha.locationtracker.databinding.DialogConsentBinding
+import com.disha.locationtracker.service.LocationTrackingService
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var binding: ActivityMainBinding
+    private val prefs by lazy { DishaApplication.instance.prefs }
+    private val repository by lazy { DishaApplication.instance.repository }
+    private val apiClient by lazy { DishaApplication.instance.apiClient }
+
+    private var hasReceivedLocationFix = false
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+
+        if (fineGranted || coarseGranted) {
+            checkBackgroundLocationPermission()
+            startContinuousTrackingIfReady()
+        } else {
+            Toast.makeText(this, "Location permission is required for continuous tracking", Toast.LENGTH_LONG).show()
+        }
+        updateOperationalState()
+    }
+
+    private val backgroundPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        startContinuousTrackingIfReady()
+        updateOperationalState()
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (!prefs.isLoggedIn) {
+            startActivity(Intent(this, LoginActivity::class.java))
+            finish()
+            return
+        }
+
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        setupOfficerHeader()
+        setupActionListeners()
+        setupLocationObservers()
+        checkTrackingDisclosure()
+        requestInitialPermissions()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        startContinuousTrackingIfReady()
+        updateOperationalState()
+        repository.refreshPendingCount()
+    }
+
+    private fun setupOfficerHeader() {
+        binding.officerNameText.text = prefs.personnelName ?: prefs.username ?: "Field Officer"
+        binding.officerDetailsText.text = "Personnel ID: ${prefs.personnelId ?: "N/A"} | Device: ${prefs.deviceIdentifier}"
+
+        binding.logoutButton.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Sign Out")
+                .setMessage("Signing out will cease 24/7 location tracking and disconnect this device. Continue?")
+                .setPositiveButton("Sign Out") { _, _ ->
+                    performSignOut()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
+
+    private fun setupActionListeners() {
+        // GPS Settings Button (shown when device GPS is off)
+        binding.btnEnableLocation.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+        }
+
+        // Permission Request Button (shown when permission is missing)
+        binding.btnGrantPermission.setOnClickListener {
+            requestInitialPermissions()
+        }
+
+        // Emergency SOS Button
+        binding.sosButton.setOnClickListener {
+            if (prefs.isSosActive) {
+                confirmCancelSOS()
+            } else {
+                confirmTriggerSOS()
+            }
+        }
+
+        // Offline sync queue button
+        binding.syncQueueButton.setOnClickListener {
+            binding.syncQueueButton.isEnabled = false
+            lifecycleScope.launch {
+                val synced = repository.syncOfflineQueue()
+                val message = if (synced > 0) "Synced $synced buffered records!" else "No pending records."
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                binding.syncQueueButton.isEnabled = true
+                repository.refreshPendingCount()
+            }
+        }
+    }
+
+    private fun setupLocationObservers() {
+        repository.lastLocation.observe(this) { loc ->
+            loc?.let {
+                hasReceivedLocationFix = true
+                renderLocation(it)
+                updateOperationalState()
+            }
+        }
+
+        repository.pendingCount.observe(this) { count ->
+            if (count > 0) {
+                binding.offlineNoticeCard.visibility = View.VISIBLE
+                binding.offlineNoticeText.text = "Offline: $count updates queued locally"
+            } else {
+                binding.offlineNoticeCard.visibility = View.GONE
+            }
+        }
+
+        repository.lastSentTime.observe(this) { time ->
+            binding.lastUpdatedText.text = time
+        }
+    }
+
+    private fun renderLocation(loc: LocationTelemetryPayload) {
+        binding.coordinatesText.text = String.format(Locale.US, "%.5f, %.5f", loc.latitude, loc.longitude)
+        binding.accuracyText.text = String.format(Locale.US, "±%.1f m (%s)", loc.accuracy, loc.source)
+        val timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        binding.lastUpdatedText.text = timeStr
+    }
+
+    /**
+     * Starts continuous tracking whenever logged in and system requirements (GPS + permissions) are met.
+     */
+    private fun startContinuousTrackingIfReady() {
+        if (!prefs.isLoggedIn) return
+
+        if (hasLocationPermissions() && isLocationServiceEnabled()) {
+            LocationTrackingService.start(this)
+            ensureBackendDutyActive()
+        }
+    }
+
+    /**
+     * Registers active duty status on the backend so the control room overview shows the personnel as active.
+     */
+    private fun ensureBackendDutyActive() {
+        val personnelId = prefs.personnelId
+        val deviceId = prefs.deviceIdentifier
+        if (prefs.dutySessionId.isNullOrBlank() && !personnelId.isNullOrBlank()) {
+            lifecycleScope.launch {
+                try {
+                    val result = apiClient.startDuty(personnelId, deviceId)
+                    if (result.isSuccess) {
+                        val session = result.getOrNull()?.session
+                        prefs.dutySessionId = session?.id
+                        prefs.dutyStatus = "TRACKING_ACTIVE"
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    /**
+     * Shows informed consent disclosure on first launch after sign in.
+     */
+    private fun checkTrackingDisclosure() {
+        if (prefs.consentGivenAt == 0L) {
+            val dialogBinding = DialogConsentBinding.inflate(LayoutInflater.from(this))
+            val dialog = AlertDialog.Builder(this)
+                .setView(dialogBinding.root)
+                .setCancelable(false)
+                .setPositiveButton(R.string.consent_agree, null)
+                .setNegativeButton(R.string.consent_cancel) { _, _ ->
+                    performSignOut()
+                }
+                .create()
+
+            dialog.setOnShowListener {
+                val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                positiveButton.isEnabled = false
+
+                dialogBinding.consentCheckbox.setOnCheckedChangeListener { _, isChecked ->
+                    positiveButton.isEnabled = isChecked
+                }
+
+                positiveButton.setOnClickListener {
+                    prefs.consentGivenAt = System.currentTimeMillis()
+                    dialog.dismiss()
+                    startContinuousTrackingIfReady()
+                    updateOperationalState()
+                }
+            }
+
+            dialog.show()
+        }
+    }
+
+    /**
+     * Checks all operational parameters (Permissions, GPS hardware state, and Live Fix)
+     * and updates the UI accurately without misleading states.
+     */
+    private fun updateOperationalState() {
+        val isSos = prefs.isSosActive
+        val hasPermissions = hasLocationPermissions()
+        val isGpsEnabled = isLocationServiceEnabled()
+
+        // 1. Update GPS hardware disabled banner
+        binding.gpsDisabledCard.visibility = if (!isGpsEnabled) View.VISIBLE else View.GONE
+
+        // 2. Update Permission banner
+        binding.permissionCard.visibility = if (!hasPermissions) View.VISIBLE else View.GONE
+
+        // 3. Update Tracking Status Badge & Text
+        when {
+            isSos -> {
+                binding.trackingBadge.text = getString(R.string.status_sos_active)
+                binding.trackingBadge.setBackgroundColor(ContextCompat.getColor(this, R.color.danger_surface))
+                binding.trackingBadge.setTextColor(ContextCompat.getColor(this, R.color.danger))
+
+                binding.trackingStatusIcon.setColorFilter(ContextCompat.getColor(this, R.color.danger))
+                binding.trackingStatusText.text = "EMERGENCY SOS ACTIVE • High-frequency transmission"
+                binding.trackingStatusText.setTextColor(ContextCompat.getColor(this, R.color.danger))
+
+                binding.sosButton.text = getString(R.string.cancel_sos)
+                binding.sosButton.setBackgroundColor(ContextCompat.getColor(this, R.color.warning))
+            }
+            !isGpsEnabled -> {
+                binding.trackingBadge.text = getString(R.string.status_location_off)
+                binding.trackingBadge.setBackgroundColor(ContextCompat.getColor(this, R.color.warning_surface))
+                binding.trackingBadge.setTextColor(ContextCompat.getColor(this, R.color.warning))
+
+                binding.trackingStatusIcon.setColorFilter(ContextCompat.getColor(this, R.color.warning))
+                binding.trackingStatusText.text = "Location is OFF — Turn on GPS in Android settings"
+                binding.trackingStatusText.setTextColor(ContextCompat.getColor(this, R.color.warning))
+
+                binding.sosButton.text = getString(R.string.trigger_sos)
+                binding.sosButton.setBackgroundColor(ContextCompat.getColor(this, R.color.danger))
+            }
+            !hasPermissions -> {
+                binding.trackingBadge.text = getString(R.string.status_permission_required)
+                binding.trackingBadge.setBackgroundColor(ContextCompat.getColor(this, R.color.danger_surface))
+                binding.trackingBadge.setTextColor(ContextCompat.getColor(this, R.color.danger))
+
+                binding.trackingStatusIcon.setColorFilter(ContextCompat.getColor(this, R.color.danger))
+                binding.trackingStatusText.text = "Permission Required — Location access missing"
+                binding.trackingStatusText.setTextColor(ContextCompat.getColor(this, R.color.danger))
+
+                binding.sosButton.text = getString(R.string.trigger_sos)
+                binding.sosButton.setBackgroundColor(ContextCompat.getColor(this, R.color.danger))
+            }
+            hasReceivedLocationFix -> {
+                binding.trackingBadge.text = getString(R.string.status_tracking_active)
+                binding.trackingBadge.setBackgroundColor(ContextCompat.getColor(this, R.color.success_surface))
+                binding.trackingBadge.setTextColor(ContextCompat.getColor(this, R.color.success))
+
+                binding.trackingStatusIcon.setColorFilter(ContextCompat.getColor(this, R.color.success))
+                binding.trackingStatusText.text = "Tracking Active • 24/7 foreground service operational"
+                binding.trackingStatusText.setTextColor(ContextCompat.getColor(this, R.color.success))
+
+                binding.sosButton.text = getString(R.string.trigger_sos)
+                binding.sosButton.setBackgroundColor(ContextCompat.getColor(this, R.color.danger))
+            }
+            else -> {
+                binding.trackingBadge.text = getString(R.string.status_waiting_gps)
+                binding.trackingBadge.setBackgroundColor(ContextCompat.getColor(this, R.color.primary_light))
+                binding.trackingBadge.setTextColor(ContextCompat.getColor(this, R.color.primary_dark))
+
+                binding.trackingStatusIcon.setColorFilter(ContextCompat.getColor(this, R.color.primary))
+                binding.trackingStatusText.text = "Acquiring GPS fix..."
+                binding.trackingStatusText.setTextColor(ContextCompat.getColor(this, R.color.primary))
+
+                binding.sosButton.text = getString(R.string.trigger_sos)
+                binding.sosButton.setBackgroundColor(ContextCompat.getColor(this, R.color.danger))
+            }
+        }
+    }
+
+    private fun isLocationServiceEnabled(): Boolean {
+        val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
+        return LocationManagerCompat.isLocationEnabled(lm)
+    }
+
+    private fun hasLocationPermissions(): Boolean {
+        val fineGranted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        return fineGranted || coarseGranted
+    }
+
+    private fun confirmTriggerSOS() {
+        AlertDialog.Builder(this)
+            .setTitle("EMERGENCY SOS")
+            .setMessage("This will immediately send an Emergency SOS distress alert to the DISHA Command Center with your real-time coordinates. Proceed?")
+            .setPositiveButton("TRIGGER SOS") { _, _ ->
+                lifecycleScope.launch {
+                    val success = repository.triggerSOS()
+                    updateOperationalState()
+                    if (success) {
+                        Toast.makeText(this@MainActivity, "EMERGENCY SOS BROADCAST ACTIVE!", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmCancelSOS() {
+        AlertDialog.Builder(this)
+            .setTitle("Cancel Emergency SOS")
+            .setMessage("Are you sure you want to resolve and cancel the Emergency SOS broadcast?")
+            .setPositiveButton("Cancel SOS") { _, _ ->
+                lifecycleScope.launch {
+                    repository.cancelSOS()
+                    updateOperationalState()
+                    Toast.makeText(this@MainActivity, "Emergency SOS cancelled.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Keep Active", null)
+            .show()
+    }
+
+    private fun performSignOut() {
+        LocationTrackingService.stop(this)
+        val personnelId = prefs.personnelId
+        lifecycleScope.launch {
+            if (!personnelId.isNullOrBlank()) {
+                try {
+                    apiClient.endDuty(personnelId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            prefs.clearAuth()
+            startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+            finish()
+        }
+    }
+
+    private fun requestInitialPermissions() {
+        val perms = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            perms.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        permissionLauncher.launch(perms.toTypedArray())
+    }
+
+    private fun checkBackgroundLocationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val bgGranted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!bgGranted) {
+                AlertDialog.Builder(this)
+                    .setTitle("Background Location Access")
+                    .setMessage("For transparent officer safety monitoring, DISHA requires 'Allow all the time' location access even when the screen is locked or the app is closed.")
+                    .setPositiveButton("Grant Access") { _, _ ->
+                        backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                    }
+                    .setNegativeButton("Later", null)
+                    .show()
+            }
+        }
+    }
+}

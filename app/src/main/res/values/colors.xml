@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#0B57D0</color>
+    <color name="primary_dark">#0842A0</color>
+    <color name="primary_light">#D3E3FD</color>
+    <color name="secondary">#00639B</color>
+    <color name="accent">#00A86B</color>
+    <color name="background">#F8F9FA</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="text_primary">#1F1F1F</color>
+    <color name="text_secondary">#444746</color>
+    <color name="text_muted">#747775</color>
+    <color name="border">#E0E2EC</color>
+    <color name="danger">#BA1A1A</color>
+    <color name="danger_surface">#FFEDEC</color>
+    <color name="warning">#E27500</color>
+    <color name="warning_surface">#FFF3E0</color>
+    <color name="success">#146C2E</color>
+    <color name="success_surface">#E6F4EA</color>
+
+    <!-- Calculator Theme Colors -->
+    <color name="calc_bg">#181B22</color>
+    <color name="calc_surface">#222631</color>
+    <color name="calc_display_bg">#12151B</color>
+    <color name="calc_text_primary">#F3F4F6</color>
+    <color name="calc_text_secondary">#9CA3AF</color>
+    <color name="calc_btn_digit">#2B303F</color>
+    <color name="calc_btn_digit_pressed">#373E52</color>
+    <color name="calc_btn_op">#374151</color>
+    <color name="calc_btn_op_text">#60A5FA</color>
+    <color name="calc_btn_equals">#2563EB</color>
+    <color name="calc_btn_equals_text">#FFFFFF</color>
+    <color name="calc_btn_clear">#4B5563</color>
+    <color name="calc_btn_clear_text">#F87171</color>
+</resources>
