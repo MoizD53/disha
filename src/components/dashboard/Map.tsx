@@ -28,12 +28,17 @@ if (typeof window !== "undefined") {
 type MapLayerType = "streets" | "navigation" | "satellite" | "dark";
 
 const MAP_STYLES: Record<MapLayerType, any> = {
+  navigation: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
   streets: {
     version: 8,
     sources: {
       "osm-tiles": {
         type: "raster",
-        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tiles: [
+          "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        ],
         tileSize: 256,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxzoom: 19,
@@ -49,29 +54,6 @@ const MAP_STYLES: Record<MapLayerType, any> = {
       },
     ],
   },
-  navigation: {
-    version: 8,
-    sources: {
-      "esri-street": {
-        type: "raster",
-        tiles: [
-          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
-        ],
-        tileSize: 256,
-        attribution: "Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS",
-        maxzoom: 19,
-      },
-    },
-    layers: [
-      {
-        id: "esri-street-layer",
-        type: "raster",
-        source: "esri-street",
-        minzoom: 0,
-        maxzoom: 19,
-      },
-    ],
-  },
   satellite: {
     version: 8,
     sources: {
@@ -81,7 +63,8 @@ const MAP_STYLES: Record<MapLayerType, any> = {
           "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         ],
         tileSize: 256,
-        maxzoom: 19,
+        attribution: "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics",
+        maxzoom: 18, // Capped at 18: Prevents Esri from returning the 2521-byte "Map data not yet available" placeholder
       },
       "esri-labels": {
         type: "raster",
@@ -89,7 +72,7 @@ const MAP_STYLES: Record<MapLayerType, any> = {
           "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
         ],
         tileSize: 256,
-        maxzoom: 19,
+        maxzoom: 17, // Capped at 17 for place labels
       },
     },
     layers: [
@@ -156,7 +139,7 @@ interface Props {
 export default function MapComponent({ data, selectedId, onMarkerClick, className = "" }: Props) {
   const mapRef = useRef<MapRef | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [layerType, setLayerType] = useState<MapLayerType>("streets");
+  const [layerType, setLayerType] = useState<MapLayerType>("navigation");
   const [followMode, setFollowMode] = useState(false);
 
   const located = useMemo(
@@ -278,6 +261,12 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
         {...viewState}
         onMove={(evt) => setViewState(evt.viewState)}
         onLoad={() => setMapLoaded(true)}
+        onError={(e) => {
+          console.warn("Map style/tile event:", e?.error?.message || e);
+          if (layerType !== "navigation") {
+            setLayerType("navigation");
+          }
+        }}
         mapStyle={MAP_STYLES[layerType]}
         mapLib={maplibregl}
         style={{ width: "100%", height: "100%" }}
@@ -435,7 +424,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
               ? "bg-sky-600 text-white shadow-sm"
               : "text-slate-300 hover:text-white hover:bg-slate-800"
           }`}
-          title="Esri Navigation Street Map with highways and building footprints"
+          title="CARTO Voyager vector navigation style with complete street names, landmarks, and building footprints"
         >
           Navigation
         </button>
