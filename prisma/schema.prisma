@@ -1,0 +1,328 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  SP
+  DYSP
+  CONTROL_ROOM_OFFICER
+  FIELD_PERSONNEL
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum DeviceStatus {
+  ACTIVE
+  INACTIVE
+  REVOKED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  username     String     @unique
+  passwordHash String
+  role         UserRole
+  status       UserStatus @default(ACTIVE)
+
+  personnel Personnel?
+  sessions  Session[]
+  ackedAlerts Alert[] @relation("AlertAck")
+  resAlerts   Alert[] @relation("AlertRes")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Personnel {
+  id             String @id @default(cuid())
+  userId         String @unique
+  personnelCode  String @unique
+  name           String
+  designation    String?
+  unit           String?
+  phone          String?
+  active         Boolean @default(true)
+
+  user    User     @relation(fields: [userId], references: [id])
+  devices Device[]
+  dutySessions DutySession[]
+  locations Location[]
+  locationEvents LocationEvent[]
+  heartbeats Heartbeat[]
+  sosEvents SOSEvent[]
+  alerts Alert[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Device {
+  id           String       @id @default(cuid())
+  personnelId  String
+  deviceIdentifier String   @unique
+  platform     String
+  appVersion   String?
+  status       DeviceStatus @default(ACTIVE)
+
+  personnel Personnel @relation(fields: [personnelId], references: [id])
+  dutySessions DutySession[]
+  locations Location[]
+  locationEvents LocationEvent[]
+  heartbeats Heartbeat[]
+  sosEvents SOSEvent[]
+
+  registeredAt DateTime @default(now())
+  lastSeenAt   DateTime?
+  updatedAt    DateTime @updatedAt
+  
+  credentials  DeviceCredential[]
+}
+
+model DeviceCredential {
+  id           String    @id @default(cuid())
+  deviceId     String
+  tokenHash    String    @unique
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastUsedAt   DateTime?
+
+  device       Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  @@index([deviceId, isActive])
+}
+
+model Session {
+  id           String    @id @default(cuid())
+  userId       String
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  userAgent    String?
+  ipAddress    String?
+  revokedAt    DateTime?
+  lastSeenAt   DateTime?
+  
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model AuditLog {
+  id           String    @id @default(cuid())
+  actorId      String?
+  action       String
+  targetType   String?
+  targetId     String?
+  metadata     String?   // Store JSON string
+  ipAddress    String?
+  userAgent    String?
+  
+  createdAt    DateTime  @default(now())
+}
+
+enum DutyStatus {
+  DUTY_STARTED
+  TRACKING_ACTIVE
+  SOS_ACTIVE
+  DUTY_ENDED
+}
+
+model DutySession {
+  id           String      @id @default(cuid())
+  personnelId  String
+  deviceId     String
+  status       DutyStatus  @default(DUTY_STARTED)
+  startedAt    DateTime    @default(now())
+  endedAt      DateTime?
+  
+  personnel    Personnel   @relation(fields: [personnelId], references: [id])
+  device       Device      @relation(fields: [deviceId], references: [id])
+  locations    Location[]
+  locationEvents LocationEvent[]
+  sosEvents    SOSEvent[]
+  alerts       Alert[]
+  
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+enum LocationSource {
+  GPS
+  NETWORK
+  UNKNOWN
+}
+
+enum TrackingMode {
+  NORMAL
+  SOS
+}
+
+enum LocationEventType {
+  LOCATION_UNAVAILABLE
+  LOCATION_RECOVERED
+  NETWORK_LOST
+  NETWORK_RESTORED
+  DUTY_STARTED
+  DUTY_ENDED
+}
+
+model Location {
+  id              String         @id @default(cuid())
+  clientEventId   String         @unique
+  personnelId     String
+  deviceId        String
+  dutySessionId   String?
+  
+  latitude        Float
+  longitude       Float
+  accuracy        Float
+  
+  recordedAt      DateTime
+  receivedAt      DateTime       @default(now())
+  
+  source          LocationSource @default(UNKNOWN)
+  trackingMode    TrackingMode   @default(NORMAL)
+  
+  batteryLevel    Float?
+  networkState    String?
+  
+  createdAt       DateTime       @default(now())
+
+  personnel       Personnel      @relation(fields: [personnelId], references: [id])
+  device          Device         @relation(fields: [deviceId], references: [id])
+  dutySession     DutySession?   @relation(fields: [dutySessionId], references: [id])
+
+  @@index([personnelId, recordedAt])
+  @@index([dutySessionId, recordedAt])
+}
+
+model LocationEvent {
+  id              String            @id @default(cuid())
+  clientEventId   String            @unique
+  eventType       LocationEventType
+  
+  personnelId     String
+  deviceId        String
+  dutySessionId   String?
+  
+  recordedAt      DateTime
+  receivedAt      DateTime          @default(now())
+  metadata        String?           
+  createdAt       DateTime          @default(now())
+
+  personnel       Personnel      @relation(fields: [personnelId], references: [id])
+  device          Device         @relation(fields: [deviceId], references: [id])
+  dutySession     DutySession?   @relation(fields: [dutySessionId], references: [id])
+
+  @@index([personnelId, recordedAt])
+}
+
+enum SOSStatus {
+  ACTIVE
+  RESOLVED
+  CANCELLED
+}
+
+enum AlertType {
+  SOS
+  LOCATION_UNAVAILABLE
+  NETWORK_OFFLINE
+  TELEMETRY_STALE
+}
+
+enum AlertSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum AlertStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model SOSEvent {
+  id                String       @id @default(cuid())
+  clientEventId     String       @unique
+  personnelId       String
+  deviceId          String
+  dutySessionId     String?
+  
+  startedAt         DateTime     @default(now())
+  endedAt           DateTime?
+  status            SOSStatus    @default(ACTIVE)
+  
+  initialLocationId String?
+  lastLocationId    String?
+  
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  personnel         Personnel    @relation(fields: [personnelId], references: [id])
+  device            Device       @relation(fields: [deviceId], references: [id])
+  dutySession       DutySession? @relation(fields: [dutySessionId], references: [id])
+  
+  alerts            Alert[]
+
+  @@index([personnelId, status])
+  @@index([dutySessionId, status])
+}
+
+model Alert {
+  id                String         @id @default(cuid())
+  type              AlertType
+  severity          AlertSeverity  @default(CRITICAL)
+  
+  personnelId       String
+  dutySessionId     String?
+  sosEventId        String?
+  
+  message           String
+  status            AlertStatus    @default(ACTIVE)
+  
+  createdAt         DateTime       @default(now())
+  
+  acknowledgedAt    DateTime?
+  acknowledgedBy    String?
+  
+  resolvedAt        DateTime?
+  resolvedBy        String?
+
+  personnel         Personnel    @relation(fields: [personnelId], references: [id])
+  dutySession       DutySession? @relation(fields: [dutySessionId], references: [id])
+  sosEvent          SOSEvent?    @relation(fields: [sosEventId], references: [id])
+  
+  ackUser           User?        @relation("AlertAck", fields: [acknowledgedBy], references: [id])
+  resUser           User?        @relation("AlertRes", fields: [resolvedBy], references: [id])
+
+  @@index([status])
+  @@index([personnelId, status])
+}
+model Heartbeat {
+  id            String   @id @default(cuid())
+  deviceId      String
+  personnelId   String
+  batteryLevel  Float?
+  networkState  String?
+  appVersion    String?
+  healthState   String?
+  recordedAt    DateTime
+  receivedAt    DateTime @default(now())
+
+  device        Device    @relation(fields: [deviceId], references: [id])
+  personnel     Personnel @relation(fields: [personnelId], references: [id])
+
+  @@index([personnelId, recordedAt])
+}

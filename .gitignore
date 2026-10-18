@@ -39,3 +39,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
+
+.vercel
+
+# Standalone Android & scratch
+android-field-app/
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
+fix*.py
+generate_*.py
+
+generated/

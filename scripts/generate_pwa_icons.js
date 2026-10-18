@@ -1,0 +1,82 @@
+const sharp = require('sharp');
+const fs = require('fs');
+const path = require('path');
+
+const iconsDir = path.join(process.cwd(), 'public', 'icons');
+if (!fs.existsSync(iconsDir)) {
+  fs.mkdirSync(iconsDir, { recursive: true });
+}
+
+function getSvg(isMaskable) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+    <defs>
+      <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#0f172a"/>
+        <stop offset="50%" stop-color="#020617"/>
+        <stop offset="100%" stop-color="#090d16"/>
+      </linearGradient>
+      <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#38bdf8"/>
+        <stop offset="50%" stop-color="#0284c7"/>
+        <stop offset="100%" stop-color="#0369a1"/>
+      </linearGradient>
+      <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#34d399"/>
+        <stop offset="100%" stop-color="#059669"/>
+      </linearGradient>
+      <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="8" result="blur"/>
+        <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+      </filter>
+    </defs>
+    
+    <!-- Background -->
+    <rect width="512" height="512" ${isMaskable ? '' : 'rx="112"'} fill="url(#bgGrad)"/>
+    
+    <!-- Radar Grid Circles -->
+    <circle cx="256" cy="235" r="150" fill="none" stroke="#1e293b" stroke-width="3" stroke-dasharray="6,6"/>
+    <circle cx="256" cy="235" r="105" fill="none" stroke="#334155" stroke-width="3"/>
+    <circle cx="256" cy="235" r="55" fill="none" stroke="#38bdf8" stroke-width="2" stroke-opacity="0.4"/>
+    
+    <!-- Tactical Shield -->
+    <path d="M256,80 L370,135 L370,250 C370,335 256,395 256,395 C256,395 142,335 142,250 L142,135 Z" 
+          fill="none" stroke="url(#shieldGrad)" stroke-width="14" stroke-linejoin="round" filter="url(#glow)"/>
+    
+    <!-- Central Location Beacon / Radar Pin -->
+    <circle cx="256" cy="225" r="24" fill="url(#accentGrad)" filter="url(#glow)"/>
+    <circle cx="256" cy="225" r="10" fill="#ffffff"/>
+    
+    <!-- Crosshairs -->
+    <line x1="256" y1="165" x2="256" y2="195" stroke="#38bdf8" stroke-width="4" stroke-linecap="round"/>
+    <line x1="256" y1="255" x2="256" y2="285" stroke="#38bdf8" stroke-width="4" stroke-linecap="round"/>
+    <line x1="196" y1="225" x2="226" y2="225" stroke="#38bdf8" stroke-width="4" stroke-linecap="round"/>
+    <line x1="286" y1="225" x2="316" y2="225" stroke="#38bdf8" stroke-width="4" stroke-linecap="round"/>
+    
+    <!-- Typography -->
+    <text x="256" y="450" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="44" fill="#f8fafc" text-anchor="middle" letter-spacing="8">DISHA</text>
+  </svg>`;
+}
+
+async function generate() {
+  const standardSvg = Buffer.from(getSvg(false));
+  const maskableSvg = Buffer.from(getSvg(true));
+  
+  fs.writeFileSync(path.join(iconsDir, 'icon.svg'), standardSvg);
+  
+  await sharp(standardSvg).resize(192, 192).png().toFile(path.join(iconsDir, 'icon-192.png'));
+  await sharp(standardSvg).resize(512, 512).png().toFile(path.join(iconsDir, 'icon-512.png'));
+  await sharp(standardSvg).resize(180, 180).png().toFile(path.join(iconsDir, 'apple-touch-icon.png'));
+  
+  await sharp(maskableSvg).resize(192, 192).png().toFile(path.join(iconsDir, 'icon-192-maskable.png'));
+  await sharp(maskableSvg).resize(512, 512).png().toFile(path.join(iconsDir, 'icon-512-maskable.png'));
+  
+  // Also copy apple touch icon to public root for default Safari lookup
+  fs.copyFileSync(path.join(iconsDir, 'apple-touch-icon.png'), path.join(process.cwd(), 'public', 'apple-touch-icon.png'));
+
+  console.log('Successfully generated all PWA icons in public/icons/');
+}
+
+generate().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
