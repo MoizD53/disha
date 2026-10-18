@@ -39,7 +39,7 @@ test("Control Room Dashboard API Logic", async (t) => {
     const p = data.find(d => d.id === personnel.id);
     assert.ok(p);
     assert.strictEqual(p.dutyStatus, "OFF DUTY");
-    assert.strictEqual(p.locationStatus, "TRACKING ACTIVE");
+    assert.strictEqual(p.locationStatus, "OFF DUTY");
     assert.strictEqual(p.sosStatus, "NONE");
     assert.strictEqual(p.deviceStatus, "OFFLINE"); // Changed because no heartbeat exists
     assert.strictEqual(p.networkStatus, "UNKNOWN"); // Changed because no heartbeat exists

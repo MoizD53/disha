@@ -52,7 +52,7 @@ export async function getDashboardOverview() {
   const hbMap = new Map(latestHeartbeats.map(h => [h.personnelId, h]));
 
   const now = Date.now();
-  const LOC_STALE_THRESHOLD_MS = 1000 * 60 * 15; // 15 mins for location
+  const LOC_STALE_THRESHOLD_MS = 1000 * 60 * 3; // 3 mins for location
   const HB_STALE_THRESHOLD_MS = 1000 * 60 * 6; // 6 mins (missed 1 heartbeat)
   const HB_OFFLINE_THRESHOLD_MS = 1000 * 60 * 15; // 15 mins (missed multiple)
 
@@ -64,7 +64,7 @@ export async function getDashboardOverview() {
     const activeSOS = p.sosEvents[0] || null;
 
     // Location State Logic
-    let locationStatus = "TRACKING ACTIVE";
+    let locationStatus = "NO DATA";
     let lastSeen: Date | null = null;
 
     const locTime = loc ? new Date(loc.recordedAt).getTime() : 0;
@@ -73,14 +73,16 @@ export async function getDashboardOverview() {
     if (loc) lastSeen = new Date(loc.recordedAt);
     if (ev && evTime > locTime) lastSeen = new Date(ev.recordedAt);
 
-    if (ev && ev.eventType === 'LOCATION_UNAVAILABLE' && evTime >= locTime) {
+    if (!activeDuty) {
+      locationStatus = "OFF DUTY";
+    } else if (ev && ev.eventType === 'LOCATION_UNAVAILABLE' && evTime >= locTime) {
       locationStatus = "LOCATION UNAVAILABLE";
-    }
-    
-    if (lastSeen) {
+    } else if (lastSeen) {
        const timeDiff = now - lastSeen.getTime();
-       if (timeDiff > LOC_STALE_THRESHOLD_MS && locationStatus === "TRACKING ACTIVE") {
+       if (timeDiff > LOC_STALE_THRESHOLD_MS) {
           locationStatus = "STALE";
+       } else {
+          locationStatus = "TRACKING ACTIVE";
        }
     } else {
        locationStatus = "NO DATA";

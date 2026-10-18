@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
       default-src 'self';
       script-src 'self' 'unsafe-eval' 'unsafe-inline';
       style-src 'self' 'unsafe-inline';
-      img-src 'self' blob: data: https://*.tile.openstreetmap.org https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com;
+      img-src 'self' blob: data: https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://server.arcgisonline.com https://*.arcgisonline.com https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com;
       font-src 'self';
       object-src 'none';
       base-uri 'self';
@@ -24,7 +24,7 @@ const nextConfig: NextConfig = {
       frame-ancestors 'none';
       worker-src 'self' blob:;
       child-src 'self' blob:;
-      connect-src 'self' https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com;
+      connect-src 'self' https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://server.arcgisonline.com https://*.arcgisonline.com https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com;
     `.replace(/\s{2,}/g, ' ').trim();
 
     return [

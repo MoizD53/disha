@@ -224,17 +224,14 @@ export default function PersonnelList({
                     : "bg-slate-900/60 border-slate-800/90 hover:bg-slate-850 hover:border-slate-700"
               }`}
             >
-              {/* Top row: Name, code, SOS alert */}
+              {/* Top row: Name, SOS alert */}
               <div className="flex justify-between items-start gap-2 mb-1.5">
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="font-bold text-sm text-slate-100 truncate">{p.name}</span>
-                    <span className="text-[11px] font-mono text-sky-400 bg-sky-950/50 px-1.5 py-0.2 rounded border border-sky-900/50">
-                      {p.personnelCode}
-                    </span>
                   </div>
                   <div className="text-xs text-slate-400 truncate mt-0.5">
-                    {p.designation} • {p.unit}
+                    {[p.designation, p.unit].filter(Boolean).join(" • ") || "Field Personnel"}
                   </div>
                 </div>
 
@@ -264,23 +261,29 @@ export default function PersonnelList({
 
                 <div
                   className={`px-2 py-1 rounded-md flex items-center gap-1.5 font-medium ${
-                    p.locationStatus === "TRACKING ACTIVE"
-                      ? "bg-sky-950/40 text-sky-300 border border-sky-900/40"
-                      : p.locationStatus === "LOCATION UNAVAILABLE"
-                        ? "bg-amber-950/40 text-amber-300 border border-amber-900/40"
-                        : "bg-slate-800/60 text-slate-400 border border-slate-700/40"
+                    p.dutyStatus === "OFF DUTY"
+                      ? "bg-slate-800/60 text-slate-400 border border-slate-700/40"
+                      : p.locationStatus === "TRACKING ACTIVE"
+                        ? "bg-sky-950/40 text-sky-300 border border-sky-900/40"
+                        : p.locationStatus === "LOCATION UNAVAILABLE"
+                          ? "bg-amber-950/40 text-amber-300 border border-amber-900/40"
+                          : "bg-slate-800/60 text-slate-400 border border-slate-700/40"
                   }`}
                 >
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${
-                      p.locationStatus === "TRACKING ACTIVE"
-                        ? "bg-sky-400"
-                        : p.locationStatus === "LOCATION UNAVAILABLE"
-                          ? "bg-amber-400"
-                          : "bg-slate-500"
+                      p.dutyStatus === "OFF DUTY"
+                        ? "bg-slate-500"
+                        : p.locationStatus === "TRACKING ACTIVE"
+                          ? "bg-sky-400"
+                          : p.locationStatus === "LOCATION UNAVAILABLE"
+                            ? "bg-amber-400"
+                            : "bg-slate-500"
                     }`}
                   />
-                  <span className="truncate">{p.locationStatus}</span>
+                  <span className="truncate">
+                    {p.dutyStatus === "OFF DUTY" ? "OFF DUTY" : p.locationStatus}
+                  </span>
                 </div>
               </div>
 

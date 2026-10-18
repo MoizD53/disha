@@ -125,12 +125,9 @@ export default function PersonnelDetail({ personnel, onClose, className = "" }: 
         <div className="min-w-0 pr-2">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-base sm:text-lg font-bold text-white truncate">{personnel.name}</h2>
-            <span className="px-2 py-0.5 bg-slate-800 text-sky-400 rounded-md text-xs font-mono font-semibold border border-slate-700">
-              {personnel.personnelCode}
-            </span>
           </div>
           <p className="text-xs text-slate-400 mt-0.5 truncate">
-            {personnel.designation || "Officer"} • {personnel.unit || "Field Operations"}
+            {[personnel.designation, personnel.unit].filter(Boolean).join(" • ") || "Field Personnel"}
           </p>
         </div>
 
