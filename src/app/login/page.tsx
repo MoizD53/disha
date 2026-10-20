@@ -139,10 +139,6 @@ export default function LoginPage() {
             Authorized personnel only. Access and actions are audited.
           </p>
         </section>
-
-        <p className="mt-5 text-center text-[11px] text-slate-600">
-          DISHA · Tactical Safety &amp; Command Telemetry
-        </p>
       </div>
 
       <InstallPrompt variant="floating-banner" />
