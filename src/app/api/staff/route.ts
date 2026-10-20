@@ -12,7 +12,7 @@ const createStaffSchema = z.object({
   name: z.string().min(2, "Staff name must be at least 2 characters").max(100),
   username: z.string().min(3, "Login ID must be at least 3 characters").max(50).regex(/^[a-zA-Z0-9_.-]+$/, "Username can only contain alphanumeric characters, dots, underscores, and dashes"),
   password: z.string().min(8, "Password must be at least 8 characters long"),
-  personnelCode: z.string().min(2, "Personnel code is required").max(50),
+  personnelCode: z.string().max(50).optional().nullable(),
   designation: z.string().max(100).optional().nullable(),
   unit: z.string().max(100).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
@@ -50,9 +50,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Login ID already taken. Please choose another." }, { status: 400 });
     }
 
+    const finalPersonnelCode = (data.personnelCode?.trim() || normalizedUsername.toUpperCase()).trim();
+
     // Check if personnelCode already exists
     const existingPersonnelCode = await prisma.personnel.findUnique({
-      where: { personnelCode: data.personnelCode },
+      where: { personnelCode: finalPersonnelCode },
     });
 
     if (existingPersonnelCode) {
@@ -74,7 +76,7 @@ export async function POST(req: Request) {
         mustChangePassword: false,
         personnel: {
           create: {
-            personnelCode: data.personnelCode,
+            personnelCode: finalPersonnelCode,
             name: data.name,
             designation: data.designation || null,
             unit: data.unit || null,

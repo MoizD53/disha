@@ -180,6 +180,23 @@ test("Access Control & Account Management (Phase 1 RBAC)", async (t) => {
     const staffBody = await resCreateStaff.json();
     assert.strictEqual(staffBody.success, true);
     assert.strictEqual(staffBody.staff.personnelCode, "STAFF-RBAC-01");
+
+    // 4. Staff-authorized admin CAN create staff account without badge/designation/unit (auto-generated)
+    const createStaffWithout3Req = new Request("http://localhost/api/staff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: `disha_session=${staffOnlyAdminToken}` },
+      body: JSON.stringify({
+        name: "Officer Rahul Verma",
+        username: "rahul_verma_field",
+        password: "StaffPassword123!",
+      }),
+    });
+    const resCreateStaffWithout3 = await createStaffHandler(createStaffWithout3Req);
+    assert.strictEqual(resCreateStaffWithout3.status, 200);
+    const staffWithout3Body = await resCreateStaffWithout3.json();
+    assert.strictEqual(staffWithout3Body.success, true);
+    assert.strictEqual(staffWithout3Body.staff.personnelCode, "RAHUL_VERMA_FIELD");
+    assert.strictEqual(staffWithout3Body.staff.name, "Officer Rahul Verma");
   });
 
   await t.test("Admin Management: Super Admin can update admin, reset password, and cannot deactivate Super Admin", async () => {

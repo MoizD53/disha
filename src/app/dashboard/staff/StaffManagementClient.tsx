@@ -233,7 +233,7 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, login ID, badge ID, unit, phone..."
+              placeholder="Search by name, login ID, phone..."
               className="w-full bg-slate-950 border border-slate-700/80 rounded-xl pl-9 pr-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition"
             />
           </div>
@@ -274,7 +274,6 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
                 <tr>
                   <th className="py-3 px-4">Staff Member</th>
                   <th className="py-3 px-4">Login ID</th>
-                  <th className="py-3 px-4">Unit & Designation</th>
                   <th className="py-3 px-4">Phone</th>
                   <th className="py-3 px-4">Duty Status</th>
                   <th className="py-3 px-4">Account Status</th>
@@ -285,7 +284,7 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
               <tbody className="divide-y divide-slate-800/60">
                 {filteredStaff.map((staff) => (
                   <tr key={staff.id} className="hover:bg-slate-800/30 transition">
-                    {/* Name & Badge */}
+                    {/* Name */}
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-300 flex items-center justify-center font-bold text-xs uppercase flex-shrink-0">
@@ -295,9 +294,6 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
                           <div className="font-bold text-white flex items-center gap-1.5">
                             <span>{staff.name}</span>
                           </div>
-                          <div className="text-[11px] font-mono text-sky-400">
-                            Badge: {staff.personnelCode}
-                          </div>
                         </div>
                       </div>
                     </td>
@@ -305,12 +301,6 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
                     {/* Login ID */}
                     <td className="py-3.5 px-4 font-mono text-slate-300 whitespace-nowrap">
                       @{staff.username}
-                    </td>
-
-                    {/* Unit & Designation */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <div className="text-white font-medium">{staff.designation || "Officer"}</div>
-                      <div className="text-[11px] text-slate-400">{staff.unit || "General Division"}</div>
                     </td>
 
                     {/* Phone */}
@@ -464,9 +454,6 @@ function CreateStaffModal({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [personnelCode, setPersonnelCode] = useState("");
-  const [designation, setDesignation] = useState("");
-  const [unit, setUnit] = useState("");
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
   const [loading, setLoading] = useState(false);
@@ -492,9 +479,6 @@ function CreateStaffModal({
           name: name.trim(),
           username: username.trim(),
           password,
-          personnelCode: personnelCode.trim(),
-          designation: designation.trim() || undefined,
-          unit: unit.trim() || undefined,
           phone: phone.trim() || undefined,
           status,
         }),
@@ -561,22 +545,6 @@ function CreateStaffModal({
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Badge / Personnel Code <span className="text-rose-400">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={personnelCode}
-                onChange={(e) => setPersonnelCode(e.target.value)}
-                placeholder="e.g. PC-4092"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
                 Login ID (Username) <span className="text-rose-400">*</span>
               </label>
               <input
@@ -588,7 +556,9 @@ function CreateStaffModal({
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono"
               />
             </div>
+          </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
                 Phone Number
@@ -601,56 +571,28 @@ function CreateStaffModal({
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono"
               />
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Designation
-              </label>
-              <input
-                type="text"
-                value={designation}
-                onChange={(e) => setDesignation(e.target.value)}
-                placeholder="e.g. Head Constable / Patrol Officer"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-              />
-            </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Police Station / Unit
+                Password (minimum 8 characters) <span className="text-rose-400">*</span>
               </label>
-              <input
-                type="text"
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-                placeholder="e.g. Koramangala Station"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
-              Initial Password (minimum 8 characters) <span className="text-rose-400">*</span>
-            </label>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Set initial password for field tracker login"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-              >
-                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-              </button>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Set password for tracker login"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -702,9 +644,6 @@ function EditStaffModal({
   onSuccess: () => void;
 }) {
   const [name, setName] = useState(staff.name);
-  const [personnelCode, setPersonnelCode] = useState(staff.personnelCode);
-  const [designation, setDesignation] = useState(staff.designation || "");
-  const [unit, setUnit] = useState(staff.unit || "");
   const [phone, setPhone] = useState(staff.phone || "");
   const [active, setActive] = useState(staff.active);
   const [loading, setLoading] = useState(false);
@@ -721,9 +660,6 @@ function EditStaffModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          personnelCode: personnelCode.trim(),
-          designation: designation.trim() || null,
-          unit: unit.trim() || null,
           phone: phone.trim() || null,
           active,
         }),
@@ -789,54 +725,16 @@ function EditStaffModal({
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Badge / Personnel Code
+                Phone Number
               </label>
               <input
                 type="text"
-                required
-                value={personnelCode}
-                onChange={(e) => setPersonnelCode(e.target.value)}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="e.g. +91 9876543210"
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
               />
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Designation
-              </label>
-              <input
-                type="text"
-                value={designation}
-                onChange={(e) => setDesignation(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Police Station / Unit
-              </label>
-              <input
-                type="text"
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
-              Phone Number
-            </label>
-            <input
-              type="text"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
-            />
           </div>
 
           <div className="flex items-center justify-between pt-2">
