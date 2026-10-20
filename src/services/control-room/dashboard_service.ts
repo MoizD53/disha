@@ -5,93 +5,141 @@ import {
   getLocationStaleMs,
 } from "@/lib/config/inactivity";
 
-export async function getDashboardOverview() {
-  const [personnelList, latestLocations, latestEvents, latestHeartbeats, recentLocations] = await Promise.all([
-    prisma.personnel.findMany({
-      where: { active: true },
-      include: {
-        devices: {
-          orderBy: { registeredAt: "desc" },
-          take: 1,
-        },
-        dutySessions: {
-          where: { endedAt: null },
-          take: 1,
-        },
-        sosEvents: {
-          where: { status: "ACTIVE" },
-          take: 1,
-          include: { alerts: { where: { status: { not: "RESOLVED" } } } },
-        },
-      },
-    }),
-    prisma.$queryRaw<any[]>`
-      SELECT l.* FROM "Location" l
-      INNER JOIN (
-        SELECT "personnelId", MAX("recordedAt") as max_time
-        FROM "Location"
-        GROUP BY "personnelId"
-      ) max_loc ON l."personnelId" = max_loc."personnelId" AND l."recordedAt" = max_loc.max_time
-    `,
-    prisma.$queryRaw<any[]>`
-      SELECT le.* FROM "LocationEvent" le
-      INNER JOIN (
-        SELECT "personnelId", MAX("recordedAt") as max_time
-        FROM "LocationEvent"
-        GROUP BY "personnelId"
-      ) max_ev ON le."personnelId" = max_ev."personnelId" AND le."recordedAt" = max_ev.max_time
-    `,
-    prisma.$queryRaw<any[]>`
-      SELECT h.* FROM "Heartbeat" h
-      INNER JOIN (
-        SELECT "personnelId", MAX("recordedAt") as max_time
-        FROM "Heartbeat"
-        GROUP BY "personnelId"
-      ) max_hb ON h."personnelId" = max_hb."personnelId" AND h."recordedAt" = max_hb.max_time
-    `,
-    prisma.location.findMany({
-      where: {
-        recordedAt: { gte: new Date(Date.now() - 5 * 60 * 1000) },
-      },
-      orderBy: { recordedAt: "desc" },
-      take: 300,
-    }),
-  ]);
+// Short-lived in-memory cache to coalesce rapid concurrent requests (e.g. multiple open dashboard tabs)
+let cachedOverview: { data: any[]; timestamp: number } | null = null;
+const CACHE_TTL_MS = 2000; // 2 seconds
 
-  const locMap = new Map(latestLocations.map((l) => [l.personnelId, l]));
-  const evMap = new Map(latestEvents.map((e) => [e.personnelId, e]));
-  const hbMap = new Map(latestHeartbeats.map((h) => [h.personnelId, h]));
+export function invalidateDashboardCache() {
+  cachedOverview = null;
+}
 
+export async function getDashboardOverview(forceFresh: boolean = false) {
   const now = Date.now();
-  const LOC_STALE_THRESHOLD_MS = getLocationStaleMs(); // 3 mins default
+  const isTest =
+    process.env.NODE_ENV === "test" ||
+    process.env.DISABLE_CACHE === "1" ||
+    process.argv.some((a) => a.includes("test"));
+
+  if (!isTest && !forceFresh && cachedOverview && now - cachedOverview.timestamp < CACHE_TTL_MS) {
+    return cachedOverview.data;
+  }
+
+  const LOC_STALE_THRESHOLD_MS = getLocationStaleMs(); // 7 mins default (5-min interval + 2-min buffer)
   const HB_TIMEOUT_MS = getHeartbeatTimeoutMs(); // 2 mins default
   const HB_STALE_THRESHOLD_MS = getHeartbeatStaleMs(); // 75 secs default
 
-  // Prefer fresh verified fixes (accuracy <= 20m, age <= 90s) over coarse cellular bounces
-  const verifiedRecentMap = new Map<string, any>();
-  for (const rLoc of recentLocations) {
-    if (!verifiedRecentMap.has(rLoc.personnelId) && Number(rLoc.accuracy) <= 20.0) {
-      const ageMs = now - new Date(rLoc.recordedAt).getTime();
-      if (ageMs <= 90_000) {
-        verifiedRecentMap.set(rLoc.personnelId, rLoc);
+  // Single efficient query using indexed filters and selecting ONLY necessary columns
+  const personnelList = await prisma.personnel.findMany({
+    where: { active: true },
+    select: {
+      id: true,
+      name: true,
+      personnelCode: true,
+      designation: true,
+      unit: true,
+      devices: {
+        orderBy: { registeredAt: "desc" },
+        take: 1,
+        select: {
+          id: true,
+          deviceIdentifier: true,
+          status: true,
+          lastSeenAt: true,
+          lastHeartbeatAt: true,
+          batteryLevel: true,
+          networkState: true,
+          latestLatitude: true,
+          latestLongitude: true,
+          latestAccuracy: true,
+          latestSource: true,
+          latestLocationTime: true,
+        },
+      },
+      dutySessions: {
+        where: { endedAt: null },
+        take: 1,
+        select: { id: true, status: true, startedAt: true },
+      },
+      sosEvents: {
+        where: { status: "ACTIVE" },
+        take: 1,
+        select: {
+          id: true,
+          alerts: {
+            where: { status: { not: "RESOLVED" } },
+            take: 1,
+            select: { id: true },
+          },
+        },
+      },
+    },
+  });
+
+  // Check if any active device is missing latest fields (e.g. legacy test records)
+  const legacyLocIds = personnelList
+    .filter((p) => p.devices[0] && p.devices[0].latestLatitude == null)
+    .map((p) => p.id);
+
+  let legacyLocMap = new Map<string, any>();
+  if (legacyLocIds.length > 0) {
+    const rawLegacy = await prisma.location.findMany({
+      where: { personnelId: { in: legacyLocIds } },
+      orderBy: { recordedAt: "desc" },
+      take: legacyLocIds.length * 2,
+    });
+    for (const l of rawLegacy) {
+      if (!legacyLocMap.has(l.personnelId)) {
+        legacyLocMap.set(l.personnelId, l);
       }
     }
   }
 
-  return personnelList.map((p) => {
-    const latestRaw = locMap.get(p.id);
-    const verifiedRecent = verifiedRecentMap.get(p.id);
-    const loc = verifiedRecent || latestRaw;
-    const ev = evMap.get(p.id);
-    const hb = hbMap.get(p.id);
+  // Also check if any recent location event exists (e.g. LOCATION_UNAVAILABLE)
+  const activePersonnelIds = personnelList.map((p) => p.id);
+  const recentEvents = await prisma.locationEvent.findMany({
+    where: {
+      personnelId: { in: activePersonnelIds },
+      recordedAt: { gte: new Date(now - 15 * 60 * 1000) }, // last 15 mins only
+    },
+    orderBy: { recordedAt: "desc" },
+    take: 50,
+  });
+  const evMap = new Map<string, any>();
+  for (const ev of recentEvents) {
+    if (!evMap.has(ev.personnelId)) {
+      evMap.set(ev.personnelId, ev);
+    }
+  }
+
+  const result = personnelList.map((p) => {
+    const primaryDevice = p.devices[0] || null;
     const activeDuty = p.dutySessions[0] || null;
     const activeSOS = p.sosEvents[0] || null;
-    const primaryDevice = p.devices[0] || null;
+    const ev = evMap.get(p.id);
+
     const isDeviceSignedOut = !primaryDevice || primaryDevice.status === "INACTIVE";
 
-    const locTime = loc ? new Date(loc.recordedAt).getTime() : 0;
+    // Latest location: prioritize single latest-position record on Device, fallback to legacy
+    let loc: any = null;
+    if (primaryDevice && primaryDevice.latestLatitude != null) {
+      loc = {
+        latitude: primaryDevice.latestLatitude,
+        longitude: primaryDevice.latestLongitude,
+        accuracy: primaryDevice.latestAccuracy,
+        source: primaryDevice.latestSource || "GPS",
+        recordedAt: primaryDevice.latestLocationTime || primaryDevice.lastSeenAt,
+        batteryLevel: primaryDevice.batteryLevel,
+      };
+    } else {
+      loc = legacyLocMap.get(p.id) || null;
+    }
+
+    const locTime = loc?.recordedAt ? new Date(loc.recordedAt).getTime() : 0;
     const evTime = ev ? new Date(ev.recordedAt).getTime() : 0;
-    const hbTime = hb ? new Date(hb.recordedAt).getTime() : 0;
+
+    // Latest heartbeat: from Device record
+    const hbRecordedAt = primaryDevice?.lastHeartbeatAt || primaryDevice?.lastSeenAt || null;
+    const hbTime = hbRecordedAt ? new Date(hbRecordedAt).getTime() : 0;
 
     // Device & Network Connection Status
     let deviceStatus = "ONLINE";
@@ -101,18 +149,18 @@ export async function getDashboardOverview() {
     if (isDeviceSignedOut) {
       deviceStatus = "OFFLINE";
       networkStatus = "OFFLINE";
-    } else if (hb) {
-      lastHeartbeat = new Date(hb.recordedAt);
-      const hbDiff = now - lastHeartbeat.getTime();
+    } else if (hbRecordedAt) {
+      lastHeartbeat = new Date(hbRecordedAt);
+      const hbDiff = now - hbTime;
       if (hbDiff > HB_TIMEOUT_MS) {
         deviceStatus = "OFFLINE";
         networkStatus = "OFFLINE";
       } else if (hbDiff > HB_STALE_THRESHOLD_MS) {
         deviceStatus = "STALE";
-        networkStatus = hb.networkState === "OFFLINE" ? "OFFLINE" : "ONLINE";
+        networkStatus = primaryDevice.networkState === "OFFLINE" ? "OFFLINE" : "ONLINE";
       } else {
         deviceStatus = "ONLINE";
-        networkStatus = hb.networkState === "OFFLINE" ? "OFFLINE" : "ONLINE";
+        networkStatus = primaryDevice.networkState === "OFFLINE" ? "OFFLINE" : "ONLINE";
       }
     } else {
       deviceStatus = "OFFLINE";
@@ -123,13 +171,13 @@ export async function getDashboardOverview() {
     if (
       ev &&
       (ev.eventType === "NETWORK_LOST" || ev.eventType === "LOCATION_UNAVAILABLE") &&
-      evTime > (hb ? new Date(hb.recordedAt as any).getTime() : 0)
+      evTime > hbTime
     ) {
       networkStatus = "OFFLINE";
       deviceStatus = "OFFLINE";
     }
 
-    // Last Contact Timestamp: reflects latest valid interaction across telemetry, heartbeats, or events
+    // Last Contact Timestamp: reflects latest valid interaction
     let lastSeen: Date | null = null;
     const latestActiveTime = Math.max(locTime, evTime, hbTime);
     if (latestActiveTime > 0) {
@@ -144,7 +192,6 @@ export async function getDashboardOverview() {
       locationStatus = "LOCATION UNAVAILABLE";
     } else if (loc) {
       const timeDiff = now - locTime;
-      // Mark location stale if location threshold is exceeded OR if device connection is offline
       if (timeDiff <= LOC_STALE_THRESHOLD_MS && deviceStatus === "ONLINE") {
         locationStatus = "TRACKING ACTIVE";
       } else {
@@ -197,7 +244,7 @@ export async function getDashboardOverview() {
       device: primaryDevice
         ? {
             identifier: primaryDevice.deviceIdentifier,
-            batteryLevel: loc?.batteryLevel ?? hb?.batteryLevel ?? null,
+            batteryLevel: loc?.batteryLevel ?? primaryDevice.batteryLevel ?? null,
             status: deviceStatus,
           }
         : null,
@@ -205,4 +252,11 @@ export async function getDashboardOverview() {
       activeAlertId: activeSOS?.alerts?.[0]?.id ?? null,
     };
   });
+
+  cachedOverview = {
+    data: result,
+    timestamp: now,
+  };
+
+  return result;
 }

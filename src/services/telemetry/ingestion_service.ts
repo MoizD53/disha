@@ -53,6 +53,70 @@ export async function ingestSingleLocation(personnelId: string, input: SingleLoc
 
   const actualTrackingMode = activeSOS ? "SOS" : "NORMAL";
 
+  // Determine if this new fix is fresher and should update the device's latest live position
+  const isInputFresh = !device.latestLocationTime ||
+    new Date(input.recordedAt).getTime() >= new Date(device.latestLocationTime).getTime();
+
+  // Protect verified building anchor (<= 20m) from coarse (> 20m) cellular jumps within 60s
+  const isCoarseDowngrade = input.accuracy > 20 &&
+    device.latestAccuracy != null && device.latestAccuracy <= 20 &&
+    (Date.now() - (device.latestLocationTime ? new Date(device.latestLocationTime).getTime() : 0)) < 60000 &&
+    actualTrackingMode !== "SOS";
+
+  const shouldUpdateDevicePosition = isInputFresh && !isCoarseDowngrade;
+
+  // 5-minute historical trail recording interval guard:
+  // While on active duty, persist one historical trail point approximately every 5 minutes.
+  // Avoid creating duplicate historical records from repeated heartbeats or identical updates within the same interval.
+  const intervalThresholdMs = process.env.TRAIL_RECORDING_INTERVAL_MS !== undefined
+    ? Number(process.env.TRAIL_RECORDING_INTERVAL_MS)
+    : 4.5 * 60 * 1000; // 4.5 minutes default (270s buffer for 5-minute sampling)
+
+  if (session && actualTrackingMode !== "SOS" && intervalThresholdMs > 0) {
+    const lastRecorded = await prisma.location.findFirst({
+      where: {
+        personnelId,
+        dutySessionId: session.id,
+      },
+      orderBy: { recordedAt: "desc" },
+      select: { id: true, recordedAt: true },
+    });
+
+    if (lastRecorded) {
+      const elapsedMs = Math.abs(
+        new Date(input.recordedAt).getTime() - new Date(lastRecorded.recordedAt).getTime()
+      );
+      if (elapsedMs < intervalThresholdMs) {
+        // Update device latest position and lastSeenAt without writing a duplicate row to Location table
+        const updateData: any = {
+          lastSeenAt: new Date(),
+          status: "ACTIVE",
+          batteryLevel: input.batteryLevel !== undefined ? input.batteryLevel : device.batteryLevel,
+          networkState: input.networkState || device.networkState,
+        };
+        if (shouldUpdateDevicePosition) {
+          updateData.latestLatitude = input.latitude;
+          updateData.latestLongitude = input.longitude;
+          updateData.latestAccuracy = input.accuracy;
+          updateData.latestSource = input.source;
+          updateData.latestLocationTime = input.recordedAt;
+        }
+
+        await prisma.device.update({
+          where: { id: device.id },
+          data: updateData,
+        });
+
+        return {
+          status: "deduplicated",
+          locationId: lastRecorded.id,
+          receivedAt: new Date(),
+          message: "Latest position updated; historical trail point preserved on 5-minute interval",
+        };
+      }
+    }
+  }
+
   try {
     const location = await prisma.location.create({
       data: {
@@ -71,10 +135,24 @@ export async function ingestSingleLocation(personnelId: string, input: SingleLoc
       },
     });
 
-    // Keep device lastSeenAt and ACTIVE status fresh on incoming location telemetry
+    // Update device latest position and lastSeenAt
+    const updateData: any = {
+      lastSeenAt: new Date(),
+      status: "ACTIVE",
+      batteryLevel: input.batteryLevel !== undefined ? input.batteryLevel : device.batteryLevel,
+      networkState: input.networkState || device.networkState,
+    };
+    if (shouldUpdateDevicePosition) {
+      updateData.latestLatitude = input.latitude;
+      updateData.latestLongitude = input.longitude;
+      updateData.latestAccuracy = input.accuracy;
+      updateData.latestSource = input.source;
+      updateData.latestLocationTime = input.recordedAt;
+    }
+
     await prisma.device.update({
       where: { id: device.id },
-      data: { lastSeenAt: new Date(), status: "ACTIVE" },
+      data: updateData,
     });
 
     return { status: "accepted", locationId: location.id, receivedAt: location.receivedAt };
@@ -137,7 +215,36 @@ export async function ingestBatch(personnelId: string, input: BatchIngestionInpu
   };
 
   if (input.locations && input.locations.length > 0) {
+    const intervalThresholdMs = process.env.TRAIL_RECORDING_INTERVAL_MS !== undefined
+      ? Number(process.env.TRAIL_RECORDING_INTERVAL_MS)
+      : 4.5 * 60 * 1000;
+
+    let lastAcceptedTimeMs: number | null = null;
+    if (session && actualTrackingMode !== "SOS" && intervalThresholdMs > 0) {
+      const lastInDb = await prisma.location.findFirst({
+        where: { personnelId, dutySessionId: session.id },
+        orderBy: { recordedAt: "desc" },
+        select: { recordedAt: true },
+      });
+      if (lastInDb) {
+        lastAcceptedTimeMs = new Date(lastInDb.recordedAt).getTime();
+      }
+    }
+
     for (const loc of input.locations) {
+      if (session && actualTrackingMode !== "SOS" && intervalThresholdMs > 0 && lastAcceptedTimeMs != null) {
+        const pointTimeMs = new Date(loc.recordedAt).getTime();
+        const diffMs = Math.abs(pointTimeMs - lastAcceptedTimeMs);
+        if (diffMs < intervalThresholdMs) {
+          results.locations.push({
+            clientEventId: loc.clientEventId,
+            status: "deduplicated",
+            message: "Location within 5-minute trail interval deduplicated",
+          });
+          continue;
+        }
+      }
+
       try {
         const location = await prisma.location.create({
           data: {
@@ -155,6 +262,7 @@ export async function ingestBatch(personnelId: string, input: BatchIngestionInpu
             networkState: loc.networkState ?? null,
           },
         });
+        lastAcceptedTimeMs = new Date(loc.recordedAt).getTime();
         results.locations.push({ clientEventId: loc.clientEventId, status: "accepted", locationId: location.id, receivedAt: location.receivedAt });
       } catch (err: unknown) {
         if ((err as any)?.message?.includes("UNIQUE constraint failed") || (err as any)?.code === "P2002") {

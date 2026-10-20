@@ -66,6 +66,8 @@ model Personnel {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([active])
 }
 
 model Device {
@@ -75,6 +77,16 @@ model Device {
   platform     String
   appVersion   String?
   status       DeviceStatus @default(ACTIVE)
+
+  batteryLevel       Float?
+  networkState       String?
+  lastHeartbeatAt    DateTime?
+
+  latestLatitude     Float?
+  latestLongitude    Float?
+  latestAccuracy     Float?
+  latestSource       String?
+  latestLocationTime DateTime?
 
   personnel Personnel @relation(fields: [personnelId], references: [id])
   dutySessions DutySession[]
@@ -88,6 +100,8 @@ model Device {
   updatedAt    DateTime @updatedAt
   
   credentials  DeviceCredential[]
+
+  @@index([personnelId, status])
 }
 
 model DeviceCredential {

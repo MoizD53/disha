@@ -35,29 +35,26 @@ export async function POST(req: Request) {
       device = auth.device;
     }
 
-    const [heartbeat] = await Promise.all([
-      prisma.heartbeat.create({
-        data: {
-          deviceId: device.id,
-          personnelId: parsed.personnelId,
-          batteryLevel: parsed.batteryLevel,
-          networkState: parsed.networkState,
-          appVersion: parsed.appVersion,
-          healthState: parsed.healthState,
-          recordedAt: parsed.recordedAt,
-        },
-      }),
-      // Automatically restore ONLINE status and update lastSeenAt
-      prisma.device.update({
-        where: { id: device.id },
-        data: {
-          lastSeenAt: new Date(),
-          status: "ACTIVE",
-        },
-      }),
-    ]);
+    // Efficient heartbeat update:
+    // Update Device directly in a single write without inserting an ephemeral historical row into Heartbeat.
+    // Preserves battery level, network state, online status, and freshness timestamp.
+    await prisma.device.update({
+      where: { id: device.id },
+      data: {
+        lastSeenAt: new Date(),
+        lastHeartbeatAt: parsed.recordedAt,
+        batteryLevel: parsed.batteryLevel !== undefined ? parsed.batteryLevel : device.batteryLevel,
+        networkState: parsed.networkState || device.networkState,
+        appVersion: parsed.appVersion || device.appVersion,
+        status: "ACTIVE",
+      },
+    });
 
-    return NextResponse.json({ status: "accepted", heartbeatId: heartbeat.id });
+    return NextResponse.json({
+      status: "accepted",
+      heartbeatId: `hb-${device.id}`,
+      deviceId: device.id,
+    });
   } catch (error: any) {
     if (error.name === "ZodError") {
       return NextResponse.json({ error: "Validation failed", details: error.issues || error.errors }, { status: 400 });

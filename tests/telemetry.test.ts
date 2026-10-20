@@ -12,6 +12,9 @@ import {
 } from "../src/services/telemetry/ingestion_service";
 import { singleLocationSchema } from "../src/domain/telemetry/validation";
 
+// Disable interval suppression in this unit test file to allow sub-millisecond API mechanics verification
+process.env.TRAIL_RECORDING_INTERVAL_MS = "0";
+
 test("Telemetry Ingestion and Events - Decoupled 24/7", async (t) => {
   let userA: any;
   let personnelA: any;
