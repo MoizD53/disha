@@ -150,6 +150,42 @@ class ApiClient(private val prefs: AppPreferences) {
             }
         }
 
+    suspend fun signOut(personnelId: String, deviceIdentifier: String): Result<Boolean> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "${prefs.serverUrl}/api/device/signout"
+                val payload = mapOf(
+                    "personnelId" to personnelId,
+                    "deviceIdentifier" to deviceIdentifier
+                )
+                val body = gson.toJson(payload).toRequestBody(jsonMediaType)
+                val httpRequest = Request.Builder().url(url).post(body).build()
+
+                client.newCall(httpRequest).execute().use { response ->
+                    if (response.isSuccessful) {
+                        Result.success(true)
+                    } else {
+                        // Fallback attempt to general logout
+                        try {
+                            val logoutUrl = "${prefs.serverUrl}/api/auth/logout"
+                            val emptyBody = "".toRequestBody(jsonMediaType)
+                            val logoutReq = Request.Builder().url(logoutUrl).post(emptyBody).build()
+                            client.newCall(logoutReq).execute().close()
+                        } catch (_: Exception) {}
+                        Result.success(false)
+                    }
+                }
+            } catch (e: Exception) {
+                try {
+                    val logoutUrl = "${prefs.serverUrl}/api/auth/logout"
+                    val emptyBody = "".toRequestBody(jsonMediaType)
+                    val logoutReq = Request.Builder().url(logoutUrl).post(emptyBody).build()
+                    client.newCall(logoutReq).execute().close()
+                } catch (_: Exception) {}
+                Result.failure(e)
+            }
+        }
+
     suspend fun sendLocation(payload: LocationTelemetryPayload): Result<TelemetryResponse> =
         withContext(Dispatchers.IO) {
             try {

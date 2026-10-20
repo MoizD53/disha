@@ -454,8 +454,14 @@ class MainActivity : AppCompatActivity() {
     private fun performSignOut() {
         LocationTrackingService.stop(this)
         val personnelId = prefs.personnelId
+        val deviceId = prefs.deviceIdentifier
         lifecycleScope.launch {
             if (!personnelId.isNullOrBlank()) {
+                try {
+                    apiClient.signOut(personnelId, deviceId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
                 try {
                     apiClient.endDuty(personnelId)
                 } catch (e: Exception) {
