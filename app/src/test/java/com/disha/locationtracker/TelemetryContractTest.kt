@@ -112,4 +112,26 @@ class TelemetryContractTest {
         assertEquals("accepted", response.locations?.first()?.status)
         assertEquals("evt-batch-1", response.locations?.first()?.clientEventId)
     }
+
+    @Test
+    fun testAccuracyRatingCategorization() {
+        val optimalAccuracy = 6.2f
+        val moderateAccuracy = 18.5f
+        val coarseAccuracy = 125.0f
+
+        val ratingOptimal = if (optimalAccuracy <= 10.0f) "OPTIMAL" else if (optimalAccuracy <= 30.0f) "MODERATE" else "COARSE"
+        val ratingModerate = if (moderateAccuracy <= 10.0f) "OPTIMAL" else if (moderateAccuracy <= 30.0f) "MODERATE" else "COARSE"
+        val ratingCoarse = if (coarseAccuracy <= 10.0f) "OPTIMAL" else if (coarseAccuracy <= 30.0f) "MODERATE" else "COARSE"
+
+        assertEquals("OPTIMAL", ratingOptimal)
+        assertEquals("MODERATE", ratingModerate)
+        assertEquals("COARSE", ratingCoarse)
+    }
+
+    @Test
+    fun testServerConfigDefaultUrl() {
+        assertEquals("https://disha-roan.vercel.app", com.disha.locationtracker.config.ServerConfig.DEFAULT_SERVER_URL)
+        assertEquals("https://disha-roan.vercel.app", com.disha.locationtracker.config.ServerConfig.sanitizeUrl("disha-roan.vercel.app/"))
+        assertEquals("https://custom-server.internal", com.disha.locationtracker.config.ServerConfig.sanitizeUrl("https://custom-server.internal"))
+    }
 }

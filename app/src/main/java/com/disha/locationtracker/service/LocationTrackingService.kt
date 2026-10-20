@@ -19,6 +19,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.disha.locationtracker.DishaApplication
@@ -143,18 +144,18 @@ class LocationTrackingService : Service(), LocationListener {
                 .setMinUpdateIntervalMillis(LOCATION_FASTEST_INTERVAL_MS)
                 .setMinUpdateDistanceMeters(LOCATION_MIN_DISTANCE_M)
                 .setMaxUpdateDelayMillis(LOCATION_MAX_WAIT_MS)
-                .setWaitForAccurateLocation(true)
                 .build()
 
             locationCallback = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
                     val location = result.lastLocation ?: return
-                    handleNewLocation(location, "FUSED")
+                    val source = if (location.provider == LocationManager.GPS_PROVIDER || location.accuracy <= 25f) "GPS" else "NETWORK"
+                    handleNewLocation(location, source)
                 }
 
                 override fun onLocationAvailability(avail: LocationAvailability) {
                     if (!avail.isLocationAvailable) {
-                        updateNotification(lastLocation, "Acquiring GPS fix (weak satellite signal)...")
+                        updateNotification(lastLocation, "Acquiring GPS satellites...")
                     }
                 }
             }
@@ -168,10 +169,14 @@ class LocationTrackingService : Service(), LocationListener {
                 startLocationManagerFallback()
             }
 
-            // Immediately check last known location to prime state
+            // Immediately check last known location to prime initial state if recent (< 60s)
             fusedLocationClient?.lastLocation?.addOnSuccessListener { loc ->
                 if (loc != null && lastLocation == null) {
-                    handleNewLocation(loc, "FUSED_LAST_KNOWN")
+                    val ageMs = (SystemClock.elapsedRealtimeNanos() - loc.elapsedRealtimeNanos) / 1_000_000L
+                    if (ageMs <= 60_000L) {
+                        val source = if (loc.provider == LocationManager.GPS_PROVIDER || loc.accuracy <= 25f) "GPS" else "NETWORK"
+                        handleNewLocation(loc, source)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -200,7 +205,8 @@ class LocationTrackingService : Service(), LocationListener {
                     this,
                     Looper.getMainLooper()
                 )
-            } else if (isNetEnabled) {
+            }
+            if (isNetEnabled) {
                 locationManager?.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
                     LOCATION_INTERVAL_MS + 2000L,
@@ -211,14 +217,26 @@ class LocationTrackingService : Service(), LocationListener {
             }
 
             val lastGps = locationManager?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            lastGps?.let { handleNewLocation(it, "GPS") }
+            val lastNet = locationManager?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            val bestCandidate = when {
+                lastGps != null && lastNet != null -> if (lastGps.time >= lastNet.time) lastGps else lastNet
+                lastGps != null -> lastGps
+                else -> lastNet
+            }
+            if (bestCandidate != null && lastLocation == null) {
+                val ageMs = (SystemClock.elapsedRealtimeNanos() - bestCandidate.elapsedRealtimeNanos) / 1_000_000L
+                if (ageMs <= 60_000L) {
+                    handleNewLocation(bestCandidate, if (bestCandidate.provider == LocationManager.GPS_PROVIDER) "GPS" else "NETWORK")
+                }
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
     override fun onLocationChanged(location: Location) {
-        handleNewLocation(location, if (location.provider == LocationManager.GPS_PROVIDER) "GPS" else "NETWORK")
+        val src = if (location.provider == LocationManager.GPS_PROVIDER || location.accuracy <= 25f) "GPS" else "NETWORK"
+        handleNewLocation(location, src)
     }
 
     private fun handleNewLocation(location: Location, providerSource: String) {
@@ -229,12 +247,36 @@ class LocationTrackingService : Service(), LocationListener {
             return
         }
 
-        val isSos = prefs.isSosActive
-
-        // Accuracy filter: reject inaccurate jumps (> 50m) unless SOS emergency broadcast is active
-        if (location.hasAccuracy() && location.accuracy > MAX_ACCURACY_METRES && !isSos) {
-            updateNotification(lastLocation, "Filtering coarse fix (±${location.accuracy.toInt()}m)...")
+        // 1. Sanity check: Reject non-finite coordinates or (0,0)
+        if (!location.latitude.isFinite() || !location.longitude.isFinite() ||
+            (location.latitude == 0.0 && location.longitude == 0.0) ||
+            Math.abs(location.latitude) > 90.0 || Math.abs(location.longitude) > 180.0
+        ) {
             return
+        }
+
+        // 2. Freshness check: Reject stale cached fixes (> 60s elapsed age) if we already have a recent fix
+        val ageMs = (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L
+        if (ageMs > 60_000L && lastLocation != null) {
+            return
+        }
+
+        // 3. Out-of-order check: Reject fixes timestamped older than last known by > 5 seconds
+        val prev = lastLocation
+        if (prev != null && location.time < prev.time - 5000L) {
+            return
+        }
+
+        // 4. Inferior fix dampening:
+        // If we currently have a fresh high-accuracy GPS fix (<= 15m) within the last 15 seconds,
+        // ignore coarse cellular bounces (> 80m) to prevent erratic jumping.
+        // If satellite lock is lost (> 15 seconds), we accept the network fix with its real reported accuracy.
+        val isSos = prefs.isSosActive
+        if (prev != null && prev.hasAccuracy() && prev.accuracy <= 15f && !isSos) {
+            val timeSinceLastFixMs = (SystemClock.elapsedRealtimeNanos() - prev.elapsedRealtimeNanos) / 1_000_000L
+            if (timeSinceLastFixMs < 15_000L && location.accuracy > 80f) {
+                return
+            }
         }
 
         lastLocation = location
@@ -243,12 +285,20 @@ class LocationTrackingService : Service(), LocationListener {
         val networkState = getNetworkType()
         val fixTimestamp = if (location.time > 0L) location.time else System.currentTimeMillis()
 
+        // Normalize source strictly to "GPS" or "NETWORK" for backend Prisma enum compatibility
+        val normalizedSource = when {
+            location.provider == LocationManager.GPS_PROVIDER || providerSource == "GPS" -> "GPS"
+            location.provider == LocationManager.NETWORK_PROVIDER || providerSource == "NETWORK" -> "NETWORK"
+            location.hasAccuracy() && location.accuracy <= 25f -> "GPS"
+            else -> "NETWORK"
+        }
+
         serviceScope.launch {
             DishaApplication.instance.repository.recordAndTransmitLocation(
                 latitude = location.latitude,
                 longitude = location.longitude,
                 accuracy = location.accuracy,
-                source = providerSource,
+                source = normalizedSource,
                 locationTimestamp = fixTimestamp,
                 batteryLevel = batteryLevel,
                 networkState = networkState
@@ -308,12 +358,18 @@ class LocationTrackingService : Service(), LocationListener {
             prefs.isSosActive -> "EMERGENCY SOS BROADCASTING"
             location != null -> {
                 val timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(location.time))
+                val accRating = when {
+                    location.accuracy <= 10.0f -> "Optimal (≤10m)"
+                    location.accuracy <= 30.0f -> "Moderate"
+                    else -> "Coarse Fix"
+                }
                 String.format(
                     Locale.US,
-                    "Lat: %.5f, Lng: %.5f (±%.0fm) • %s",
+                    "Lat: %.5f, Lng: %.5f (±%.0fm • %s) • %s",
                     location.latitude,
                     location.longitude,
                     location.accuracy,
+                    accRating,
                     timeStr
                 )
             }
@@ -448,12 +504,11 @@ class LocationTrackingService : Service(), LocationListener {
         const val ACTION_STOP_TRACKING = "com.disha.action.STOP_TRACKING"
         const val ACTION_TRIGGER_SOS = "com.disha.action.TRIGGER_SOS"
 
-        // 5-second interval while moving, 3-second fastest, 5-metre distance filter
+        // 5-second interval while active, 3-second fastest, 0m distance filter for continuous stationary telemetry
         private const val LOCATION_INTERVAL_MS = 5_000L
         private const val LOCATION_FASTEST_INTERVAL_MS = 3_000L
-        private const val LOCATION_MIN_DISTANCE_M = 5f
+        private const val LOCATION_MIN_DISTANCE_M = 0f
         private const val LOCATION_MAX_WAIT_MS = 10_000L
-        private const val MAX_ACCURACY_METRES = 50f
 
         private const val HEARTBEAT_INTERVAL_MS = 60_000L // 60 seconds
         private const val OFFLINE_SYNC_INTERVAL_MS = 30_000L // 30 seconds

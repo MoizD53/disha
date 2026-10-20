@@ -12,6 +12,7 @@ import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Toast
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -24,6 +25,11 @@ import com.disha.locationtracker.data.model.LocationTelemetryPayload
 import com.disha.locationtracker.databinding.ActivityMainBinding
 import com.disha.locationtracker.databinding.DialogConsentBinding
 import com.disha.locationtracker.service.LocationTrackingService
+import com.google.android.gms.common.api.ResolvableApiException
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.LocationSettingsRequest
+import com.google.android.gms.location.Priority
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -38,6 +44,15 @@ class MainActivity : AppCompatActivity() {
 
     private var hasReceivedLocationFix = false
 
+    private val locationSettingsLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            startContinuousTrackingIfReady()
+            updateOperationalState()
+        }
+    }
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -46,6 +61,7 @@ class MainActivity : AppCompatActivity() {
 
         if (fineGranted || coarseGranted) {
             checkBackgroundLocationPermission()
+            checkDeviceLocationSettings()
             startContinuousTrackingIfReady()
         } else {
             Toast.makeText(this, "Location permission is required for continuous tracking", Toast.LENGTH_LONG).show()
@@ -80,9 +96,36 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (hasLocationPermissions()) {
+            checkDeviceLocationSettings()
+        }
         startContinuousTrackingIfReady()
         updateOperationalState()
         repository.refreshPendingCount()
+    }
+
+    private fun checkDeviceLocationSettings() {
+        val locationRequest = LocationRequest.Builder(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            5000L
+        ).build()
+
+        val builder = LocationSettingsRequest.Builder()
+            .addLocationRequest(locationRequest)
+            .setAlwaysShow(true)
+
+        val client = LocationServices.getSettingsClient(this)
+        client.checkLocationSettings(builder.build())
+            .addOnFailureListener { exception ->
+                if (exception is ResolvableApiException) {
+                    try {
+                        val intentSenderRequest = IntentSenderRequest.Builder(exception.resolution).build()
+                        locationSettingsLauncher.launch(intentSenderRequest)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
     }
 
     private fun setupOfficerHeader() {
@@ -132,6 +175,27 @@ class MainActivity : AppCompatActivity() {
                 repository.refreshPendingCount()
             }
         }
+
+        // Enable Precise Location Button (shown when approximate/coarse-only permission is active)
+        binding.btnEnablePreciseLocation.setOnClickListener {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                permissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
+            } else {
+                try {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = android.net.Uri.fromParts("package", packageName, null)
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    requestInitialPermissions()
+                }
+            }
+        }
     }
 
     private fun setupLocationObservers() {
@@ -158,8 +222,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderLocation(loc: LocationTelemetryPayload) {
+        val acc = loc.accuracy
+        val statusLabel = when {
+            acc <= 10.0f -> "Optimal (≤10m Target Met)"
+            acc <= 30.0f -> "Moderate"
+            else -> "Coarse Fix (>30m)"
+        }
+        val accColor = when {
+            acc <= 10.0f -> ContextCompat.getColor(this, R.color.success)
+            acc <= 30.0f -> ContextCompat.getColor(this, R.color.primary)
+            else -> ContextCompat.getColor(this, R.color.warning)
+        }
+
         binding.coordinatesText.text = String.format(Locale.US, "%.5f, %.5f", loc.latitude, loc.longitude)
-        binding.accuracyText.text = String.format(Locale.US, "±%.1f m (%s)", loc.accuracy, loc.source)
+        binding.accuracyText.text = String.format(Locale.US, "±%.1f m (%s) • %s", acc, loc.source, statusLabel)
+        binding.accuracyText.setTextColor(accColor)
         val timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         binding.lastUpdatedText.text = timeStr
     }
@@ -245,8 +322,12 @@ class MainActivity : AppCompatActivity() {
         // 1. Update GPS hardware disabled banner
         binding.gpsDisabledCard.visibility = if (!isGpsEnabled) View.VISIBLE else View.GONE
 
-        // 2. Update Permission banner
+        // 2. Update Permission banner (missing any location permission)
         binding.permissionCard.visibility = if (!hasPermissions) View.VISIBLE else View.GONE
+
+        // 3. Update Approximate-only Warning banner (coarse granted, fine missing)
+        val coarseOnly = hasCoarseOnlyPermission()
+        binding.approximateLocationCard.visibility = if (isGpsEnabled && coarseOnly) View.VISIBLE else View.GONE
 
         // 3. Update Tracking Status Badge & Text
         when {
@@ -318,16 +399,24 @@ class MainActivity : AppCompatActivity() {
         return LocationManagerCompat.isLocationEnabled(lm)
     }
 
-    private fun hasLocationPermissions(): Boolean {
-        val fineGranted = ContextCompat.checkSelfPermission(
+    private fun hasFineLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
-        val coarseGranted = ContextCompat.checkSelfPermission(
+    }
+
+    private fun hasCoarseOnlyPermission(): Boolean {
+        val fine = hasFineLocationPermission()
+        val coarse = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.ACCESS_COARSE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
-        return fineGranted || coarseGranted
+        return !fine && coarse
+    }
+
+    private fun hasLocationPermissions(): Boolean {
+        return hasFineLocationPermission() || hasCoarseOnlyPermission()
     }
 
     private fun confirmTriggerSOS() {

@@ -35,7 +35,9 @@ class LoginActivity : AppCompatActivity() {
         if (prefs.serverUrl.isBlank() ||
             prefs.serverUrl.contains("192.168.") ||
             prefs.serverUrl.contains("10.0.2.2") ||
-            prefs.serverUrl.contains("localhost")
+            prefs.serverUrl.contains("localhost") ||
+            prefs.serverUrl.contains("disha-livid-beta.vercel.app") ||
+            prefs.serverUrl.contains("disha-duokarma1.vercel.app")
         ) {
             prefs.serverUrl = ServerConfig.DEFAULT_SERVER_URL
         }
