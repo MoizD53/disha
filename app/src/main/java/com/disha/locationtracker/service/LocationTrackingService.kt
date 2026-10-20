@@ -49,6 +49,8 @@ class LocationTrackingService : Service(), LocationListener {
     private var lastLocation: Location? = null
     private var lastVerifiedLocation: Location? = null
     private var isTrackingStarted = false
+    private var lastTrailRecordedElapsedRealtimeMs = 0L
+    private var isFirstDutyPoint = true
 
     override fun onCreate() {
         super.onCreate()
@@ -73,6 +75,8 @@ class LocationTrackingService : Service(), LocationListener {
                 }
             }
             ACTION_START_TRACKING -> {
+                isFirstDutyPoint = true
+                lastTrailRecordedElapsedRealtimeMs = 0L
                 // Idempotent: ensure updates are flowing and notification is current
                 if (!isTrackingStarted) {
                     startLocationUpdates()
@@ -303,6 +307,29 @@ class LocationTrackingService : Service(), LocationListener {
             else -> "NETWORK"
         }
 
+        // Always keep local notification and UI fresh with the latest real fix
+        updateNotification(location)
+
+        // 5. 5-Minute Historical Trail Recording Gate:
+        // While a staff member is on active duty, persist one historical trail point approximately every 5 minutes.
+        // Immediate recording occurs if:
+        //   - Emergency SOS is active (continuous emergency telemetry)
+        //   - First valid fix of the duty session (anchor starting point)
+        //   - >= 5 minutes (300,000ms) has elapsed since the last recorded historical point
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val elapsedSinceLastRecord = nowElapsed - lastTrailRecordedElapsedRealtimeMs
+        val shouldRecordHistoricalPoint = isSos || isFirstDutyPoint || (elapsedSinceLastRecord >= trailRecordingIntervalMs)
+
+        if (!shouldRecordHistoricalPoint) {
+            // Within the 5-minute sampling window: do not spam the database with duplicate historical points.
+            // Live notification and local state are already updated above.
+            return
+        }
+
+        // Commit this point to the historical trail
+        lastTrailRecordedElapsedRealtimeMs = nowElapsed
+        isFirstDutyPoint = false
+
         serviceScope.launch {
             DishaApplication.instance.repository.recordAndTransmitLocation(
                 latitude = location.latitude,
@@ -313,7 +340,6 @@ class LocationTrackingService : Service(), LocationListener {
                 batteryLevel = batteryLevel,
                 networkState = networkState
             )
-            updateNotification(location)
         }
     }
 
@@ -478,6 +504,8 @@ class LocationTrackingService : Service(), LocationListener {
 
     private fun stopTracking() {
         isTrackingStarted = false
+        isFirstDutyPoint = true
+        lastTrailRecordedElapsedRealtimeMs = 0L
         try {
             locationCallback?.let { fusedLocationClient?.removeLocationUpdates(it) }
             locationCallback = null
@@ -514,11 +542,15 @@ class LocationTrackingService : Service(), LocationListener {
         const val ACTION_STOP_TRACKING = "com.disha.action.STOP_TRACKING"
         const val ACTION_TRIGGER_SOS = "com.disha.action.TRIGGER_SOS"
 
-        // 5-second interval while active, 3-second fastest, 0m distance filter for continuous stationary telemetry
-        private const val LOCATION_INTERVAL_MS = 5_000L
-        private const val LOCATION_FASTEST_INTERVAL_MS = 3_000L
+        // 5-minute trail recording interval (300,000 ms) while on active duty
+        const val DEFAULT_TRAIL_RECORDING_INTERVAL_MS = 5 * 60 * 1000L
+        var trailRecordingIntervalMs: Long = DEFAULT_TRAIL_RECORDING_INTERVAL_MS
+
+        // Fused Location request interval: check location every 30 seconds to maintain warm GPS lock
+        private const val LOCATION_INTERVAL_MS = 30_000L
+        private const val LOCATION_FASTEST_INTERVAL_MS = 15_000L
         private const val LOCATION_MIN_DISTANCE_M = 0f
-        private const val LOCATION_MAX_WAIT_MS = 10_000L
+        private const val LOCATION_MAX_WAIT_MS = 60_000L
 
         private const val HEARTBEAT_INTERVAL_MS = 60_000L // 60 seconds
         private const val OFFLINE_SYNC_INTERVAL_MS = 30_000L // 30 seconds

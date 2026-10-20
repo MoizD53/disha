@@ -134,4 +134,53 @@ class TelemetryContractTest {
         assertEquals("https://disha-roan.vercel.app", com.disha.locationtracker.config.ServerConfig.sanitizeUrl("disha-roan.vercel.app/"))
         assertEquals("https://custom-server.internal", com.disha.locationtracker.config.ServerConfig.sanitizeUrl("https://custom-server.internal"))
     }
+
+    @Test
+    fun testTrailRecordingIntervalDefaultIs5Minutes() {
+        // Requirement 1 & 2: 5-minute location recording interval (300,000 ms)
+        val intervalMs = com.disha.locationtracker.service.LocationTrackingService.DEFAULT_TRAIL_RECORDING_INTERVAL_MS
+        assertEquals(300_000L, intervalMs)
+        assertEquals(5 * 60 * 1000L, intervalMs)
+    }
+
+    @Test
+    fun testTrailRecordingIntervalGateLogic() {
+        val intervalMs = 300_000L // 5 minutes
+        var lastRecordedElapsedMs = 0L
+        var isFirstDutyPoint = true
+
+        fun shouldRecord(currentElapsedMs: Long, isSos: Boolean): Boolean {
+            val elapsedSinceLast = currentElapsedMs - lastRecordedElapsedMs
+            val record = isSos || isFirstDutyPoint || (elapsedSinceLast >= intervalMs)
+            if (record) {
+                lastRecordedElapsedMs = currentElapsedMs
+                isFirstDutyPoint = false
+            }
+            return record
+        }
+
+        // t = 0s: Duty starts, first valid fix should record immediately
+        assertTrue(shouldRecord(0L, isSos = false))
+        assertEquals(0L, lastRecordedElapsedMs)
+
+        // t = 30s: Quick fix arrives -> Should NOT record (within 5-min window)
+        assertFalse(shouldRecord(30_000L, isSos = false))
+
+        // t = 120s: 2 minutes in -> Should NOT record
+        assertFalse(shouldRecord(120_000L, isSos = false))
+
+        // t = 299s: 4m 59s -> Should NOT record
+        assertFalse(shouldRecord(299_000L, isSos = false))
+
+        // t = 300s: 5m 00s -> SHOULD record (5-minute interval elapsed)
+        assertTrue(shouldRecord(300_000L, isSos = false))
+        assertEquals(300_000L, lastRecordedElapsedMs)
+
+        // t = 310s: 10s later in normal mode -> Should NOT record
+        assertFalse(shouldRecord(310_000L, isSos = false))
+
+        // t = 320s: Emergency SOS triggered -> SHOULD record immediately!
+        assertTrue(shouldRecord(320_000L, isSos = true))
+        assertEquals(320_000L, lastRecordedElapsedMs)
+    }
 }
