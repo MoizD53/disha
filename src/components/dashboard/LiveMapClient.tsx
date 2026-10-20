@@ -15,8 +15,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 
-export default function LiveMapClient() {
-  const { data, error, isLoading, lastUpdated } = useDashboardData(5000); // 5s interval
+export default function LiveMapClient({ initialData }: { initialData?: any[] }) {
+  const { data, error, isLoading, lastUpdated } = useDashboardData(5000, initialData);
   const [selectedPersonnelId, setSelectedPersonnelId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileTab, setMobileTab] = useState<"map" | "list" | "alerts">("map");

@@ -29,11 +29,11 @@ export type DashboardPersonnel = {
   activeAlertId: string | null;
 };
 
-export function useDashboardData(intervalMs: number = 5000) {
-  const [data, setData] = useState<DashboardPersonnel[] | null>(null);
+export function useDashboardData(intervalMs: number = 5000, initialData?: DashboardPersonnel[]) {
+  const [data, setData] = useState<DashboardPersonnel[] | null>(initialData || null);
   const [error, setError] = useState<Error | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isLoading, setIsLoading] = useState(!initialData);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(initialData ? new Date() : null);
 
   const activeControllerRef = useRef<AbortController | null>(null);
   const isFetchingRef = useRef(false);

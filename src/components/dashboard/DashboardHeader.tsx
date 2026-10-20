@@ -72,7 +72,7 @@ export default function DashboardHeader({ initialUser }: { initialUser: HeaderUs
       <header className="h-16 flex items-center justify-between px-2 sm:px-6 bg-slate-950 border-b border-slate-800 flex-shrink-0 z-30 select-none">
         {/* Brand & Nav Switcher */}
         <div className="flex items-center gap-2 sm:gap-4 lg:gap-8 min-w-0">
-          <Link href="/dashboard" className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0">
+          <Link href="/dashboard" prefetch={true} className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-sky-500/20 flex-shrink-0">
               <ShieldCheck size={20} className="text-white sm:hidden" />
               <ShieldCheck size={22} className="text-white hidden sm:block" />
@@ -100,6 +100,7 @@ export default function DashboardHeader({ initialUser }: { initialUser: HeaderUs
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={true}
                   className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3.5 py-1 sm:py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
                     isActive
                       ? "bg-sky-600 text-white shadow-sm shadow-sky-600/30"
@@ -176,6 +177,7 @@ export default function DashboardHeader({ initialUser }: { initialUser: HeaderUs
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={true}
                 onClick={() => setMobileMenuOpen(false)}
                 className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition ${
                   isActive

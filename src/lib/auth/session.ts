@@ -1,5 +1,6 @@
 import { randomBytes, createHash } from "crypto";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import type { User, Session, Personnel } from "../../../generated/prisma/client";
 import { UserRole } from "../../../generated/prisma/enums";
@@ -53,6 +54,59 @@ export async function clearSessionCookie() {
   cookieStore.delete(SESSION_COOKIE_NAME);
 }
 
+async function resolveSessionFromToken(token: string): Promise<{ user: AuthenticatedUser | null; session: Session | null }> {
+  try {
+    const tokenHash = hashToken(token);
+
+    const session = await prisma.session.findUnique({
+      where: { tokenHash },
+      include: { 
+        user: {
+          include: { personnel: true }
+        } 
+      },
+    });
+
+    if (!session) {
+      return { user: null, session: null };
+    }
+
+    if (session.revokedAt || session.expiresAt.getTime() <= Date.now() || session.user.status !== "ACTIVE") {
+      return { user: null, session: null };
+    }
+
+    // Throttle lastSeenAt updates so we don't issue a write query on every single read
+    const lastSeen = session.lastSeenAt ? session.lastSeenAt.getTime() : 0;
+    if (Date.now() - lastSeen > 1000 * 60 * 5) {
+      prisma.session.update({
+        where: { id: session.id },
+        data: { lastSeenAt: new Date() }
+      }).catch(() => {});
+    }
+
+    // Extend expiration if it's close to expiring (e.g., less than 3 days left)
+    const threeDaysInMs = 1000 * 60 * 60 * 24 * 3;
+    if (session.expiresAt.getTime() - Date.now() < threeDaysInMs) {
+      const newExpiresAt = new Date(Date.now() + SESSION_EXPIRES_IN_MS);
+      prisma.session.update({
+        where: { id: session.id },
+        data: { expiresAt: newExpiresAt }
+      }).catch(() => {});
+      session.expiresAt = newExpiresAt;
+      setSessionCookie(token, newExpiresAt).catch(() => {});
+    }
+
+    return { user: session.user as AuthenticatedUser, session };
+  } catch (error: any) {
+    if (error?.digest === "DYNAMIC_SERVER_USAGE") throw error;
+    console.error("[Session] Error resolving session from database:", error);
+    return { user: null, session: null };
+  }
+}
+
+// Request-scoped cache to deduplicate database lookups in a single RSC render tree
+const cachedResolveSession = cache(resolveSessionFromToken);
+
 export async function getSession(req?: Request): Promise<{ user: AuthenticatedUser | null; session: Session | null }> {
   let token: string | undefined;
 
@@ -75,50 +129,7 @@ export async function getSession(req?: Request): Promise<{ user: AuthenticatedUs
     return { user: null, session: null };
   }
 
-  try {
-    const tokenHash = hashToken(token);
-
-    const session = await prisma.session.findUnique({
-      where: { tokenHash },
-      include: { 
-        user: {
-          include: { personnel: true }
-        } 
-      },
-    });
-
-    if (!session) {
-      return { user: null, session: null };
-    }
-
-    if (session.revokedAt || session.expiresAt.getTime() <= Date.now() || session.user.status !== "ACTIVE") {
-      return { user: null, session: null };
-    }
-
-    // Update lastSeenAt asynchronously
-    prisma.session.update({
-      where: { id: session.id },
-      data: { lastSeenAt: new Date() }
-    }).catch(() => {});
-
-    // Extend expiration if it's close to expiring (e.g., less than 3 days left)
-    const threeDaysInMs = 1000 * 60 * 60 * 24 * 3;
-    if (session.expiresAt.getTime() - Date.now() < threeDaysInMs) {
-      const newExpiresAt = new Date(Date.now() + SESSION_EXPIRES_IN_MS);
-      await prisma.session.update({
-        where: { id: session.id },
-        data: { expiresAt: newExpiresAt }
-      }).catch(() => {});
-      session.expiresAt = newExpiresAt;
-      await setSessionCookie(token, newExpiresAt).catch(() => {});
-    }
-
-    return { user: session.user as AuthenticatedUser, session };
-  } catch (error: any) {
-    if (error?.digest === "DYNAMIC_SERVER_USAGE") throw error;
-    console.error("[Session] Error resolving session from database:", error);
-    return { user: null, session: null };
-  }
+  return cachedResolveSession(token);
 }
 
 export async function revokeSession(sessionId: string) {

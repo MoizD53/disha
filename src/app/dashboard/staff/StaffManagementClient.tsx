@@ -50,9 +50,9 @@ export type StaffMember = {
   updatedAt: string;
 };
 
-export default function StaffManagementClient() {
-  const [staffList, setStaffList] = useState<StaffMember[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function StaffManagementClient({ initialStaff }: { initialStaff?: StaffMember[] }) {
+  const [staffList, setStaffList] = useState<StaffMember[]>(initialStaff || []);
+  const [loading, setLoading] = useState(!initialStaff);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -83,7 +83,9 @@ export default function StaffManagementClient() {
   };
 
   useEffect(() => {
-    fetchStaff();
+    if (!initialStaff) {
+      fetchStaff();
+    }
   }, []);
 
   const showNotification = (message: string, type: "success" | "error" = "success") => {

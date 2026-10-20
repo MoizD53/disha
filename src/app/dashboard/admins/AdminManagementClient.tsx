@@ -35,9 +35,15 @@ export type AdminUser = {
   updatedAt: string;
 };
 
-export default function AdminManagementClient({ currentUserId }: { currentUserId: string }) {
-  const [admins, setAdmins] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function AdminManagementClient({
+  currentUserId,
+  initialAdmins,
+}: {
+  currentUserId: string;
+  initialAdmins?: AdminUser[];
+}) {
+  const [admins, setAdmins] = useState<AdminUser[]>(initialAdmins || []);
+  const [loading, setLoading] = useState(!initialAdmins);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -68,7 +74,9 @@ export default function AdminManagementClient({ currentUserId }: { currentUserId
   };
 
   useEffect(() => {
-    fetchAdmins();
+    if (!initialAdmins) {
+      fetchAdmins();
+    }
   }, []);
 
   const showNotification = (message: string, type: "success" | "error" = "success") => {

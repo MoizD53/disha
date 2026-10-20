@@ -6,6 +6,8 @@ import { hashPassword } from "@/lib/auth/password";
 import { UserRole, UserStatus } from "../../../../generated/prisma/enums";
 import { logAudit } from "@/lib/auth/audit";
 
+import { fetchStaffList } from "@/services/staff/staff_service";
+
 const createStaffSchema = z.object({
   name: z.string().min(2, "Staff name must be at least 2 characters").max(100),
   username: z.string().min(3, "Login ID must be at least 3 characters").max(50).regex(/^[a-zA-Z0-9_.-]+$/, "Username can only contain alphanumeric characters, dots, underscores, and dashes"),
@@ -20,64 +22,8 @@ const createStaffSchema = z.object({
 export async function GET(req: Request) {
   try {
     await requirePermission("STAFF_MANAGEMENT", req);
-
-    const staffList = await prisma.personnel.findMany({
-      include: {
-        user: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            role: true,
-            status: true,
-            mustChangePassword: true,
-            createdAt: true,
-            updatedAt: true,
-          },
-        },
-        devices: {
-          where: { status: "ACTIVE" },
-          take: 1,
-          select: {
-            id: true,
-            deviceIdentifier: true,
-            platform: true,
-            status: true,
-            lastSeenAt: true,
-          },
-        },
-        dutySessions: {
-          where: { endedAt: null },
-          take: 1,
-          select: {
-            id: true,
-            status: true,
-            startedAt: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    const formatted = staffList.map((p) => ({
-      id: p.id,
-      userId: p.userId,
-      username: p.user.username,
-      name: p.name,
-      personnelCode: p.personnelCode,
-      designation: p.designation,
-      unit: p.unit,
-      phone: p.phone,
-      active: p.active,
-      status: p.user.status,
-      mustChangePassword: p.user.mustChangePassword,
-      device: p.devices[0] || null,
-      activeDuty: p.dutySessions[0] || null,
-      createdAt: p.createdAt,
-      updatedAt: p.updatedAt,
-    }));
-
-    return NextResponse.json({ staff: formatted });
+    const staff = await fetchStaffList();
+    return NextResponse.json({ staff });
   } catch (error: any) {
     if (error.message === "UNAUTHORIZED") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (error.message === "FORBIDDEN") return NextResponse.json({ error: "Forbidden: Staff Management permission required" }, { status: 403 });

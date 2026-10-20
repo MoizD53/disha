@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
 import { isSuperAdmin } from "@/lib/auth/permissions";
 import AdminManagementClient from "./AdminManagementClient";
+import { fetchAdminUsersList } from "@/services/admin/admin_service";
 
 export default async function AdminManagementPage() {
   const { session, user } = await getSession();
@@ -14,5 +15,7 @@ export default async function AdminManagementPage() {
     redirect("/dashboard");
   }
 
-  return <AdminManagementClient currentUserId={user.id} />;
+  const initialAdmins = await fetchAdminUsersList();
+
+  return <AdminManagementClient currentUserId={user.id} initialAdmins={initialAdmins} />;
 }
