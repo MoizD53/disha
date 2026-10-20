@@ -305,12 +305,15 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
           const isSelected = p.id === selectedId;
           const isStale = p.locationStatus === "STALE";
           const isOffline = p.networkStatus === "OFFLINE" || p.dutyStatus === "OFF DUTY";
+          const isLowAccuracy = !isStale && !isOffline && loc.accuracy > 50;
 
           const color = isSOS
             ? "#dc2626" // Red 600
             : isStale || isOffline
               ? "#64748b" // Slate 500
-              : "#0284c7"; // Sky 600
+              : isLowAccuracy
+                ? "#d97706" // Amber 600
+                : "#0284c7"; // Sky 600
 
           const initials = p.name
             .split(" ")
@@ -333,7 +336,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
               <button
                 type="button"
                 aria-label={`Select personnel ${p.name}`}
-                title={`${p.name}${isStale ? " — Stale GPS" : ""}${isOffline ? " — Offline" : ""}`}
+                title={`${p.name}${isStale ? " — Stale GPS" : ""}${isOffline ? " — Offline" : ""}${isLowAccuracy ? ` — Low Accuracy (±${Math.round(loc.accuracy)}m)` : ` — ±${Math.round(loc.accuracy)}m`}`}
                 className="group relative flex flex-col items-center outline-none cursor-pointer"
               >
                 {/* SOS pulse effect */}
@@ -366,9 +369,9 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
                   style={{ backgroundColor: color }}
                 />
 
-                {/* Name Callout (clean, no POL badge) */}
+                {/* Name Callout with Accuracy Badge */}
                 <span
-                  className={`mt-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-bold shadow-md transition-all ${
+                  className={`mt-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-bold shadow-md transition-all flex items-center gap-1.5 ${
                     isSelected
                       ? "border-sky-500 bg-slate-900 text-sky-300 ring-1 ring-sky-400/50 scale-105"
                       : isSOS
@@ -376,9 +379,14 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
                         : "border-slate-800 bg-slate-950/90 text-slate-200"
                   }`}
                 >
-                  {p.name}
-                  {isStale && <span className="ml-1 text-[9px] text-amber-400">STALE</span>}
-                  {isOffline && <span className="ml-1 text-[9px] text-rose-400">OFFLINE</span>}
+                  <span>{p.name}</span>
+                  <span className={`text-[9px] px-1 py-0.2 rounded font-mono ${
+                    isLowAccuracy ? "bg-amber-950/80 text-amber-300 border border-amber-800/60" : "bg-slate-800 text-slate-400"
+                  }`}>
+                    ±{Math.round(loc.accuracy)}m
+                  </span>
+                  {isStale && <span className="ml-0.5 text-[9px] text-amber-400 font-sans">STALE</span>}
+                  {isOffline && <span className="ml-0.5 text-[9px] text-rose-400 font-sans">OFFLINE</span>}
                 </span>
               </button>
             </Marker>
@@ -518,15 +526,26 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
                 ? "bg-rose-500 animate-ping"
                 : selected.locationStatus === "TRACKING ACTIVE"
                   ? "bg-emerald-400"
-                  : "bg-slate-400"
+                  : selected.locationStatus === "STALE"
+                    ? "bg-amber-400"
+                    : "bg-slate-400"
             }`}
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="font-bold text-xs sm:text-sm text-white truncate">{selected.name}</span>
-              <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-slate-800 text-sky-400">
+              <span className={`text-[10px] font-semibold px-1.5 py-0.2 rounded font-mono ${
+                selected.location.accuracy > 50
+                  ? "bg-amber-950/80 text-amber-300 border border-amber-800/60"
+                  : "bg-slate-800 text-sky-400"
+              }`}>
                 ±{selected.location.accuracy.toFixed(1)}m
               </span>
+              {selected.location.accuracyRating && (
+                <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-bold">
+                  {selected.location.accuracyRating}
+                </span>
+              )}
             </div>
             <div className="text-[11px] text-slate-400 font-mono mt-0.5 truncate">
               {selected.location.latitude.toFixed(5)}, {selected.location.longitude.toFixed(5)}

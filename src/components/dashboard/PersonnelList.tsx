@@ -281,8 +281,11 @@ export default function PersonnelList({
                             : "bg-slate-500"
                     }`}
                   />
-                  <span className="truncate">
-                    {p.dutyStatus === "OFF DUTY" ? "OFF DUTY" : p.locationStatus}
+                  <span className="truncate flex items-center gap-1">
+                    <span>{p.dutyStatus === "OFF DUTY" ? "OFF DUTY" : p.locationStatus}</span>
+                    {p.location?.accuracy != null && p.locationStatus === "TRACKING ACTIVE" && (
+                      <span className="text-[10px] text-sky-400 font-mono">±{Math.round(p.location.accuracy)}m</span>
+                    )}
                   </span>
                 </div>
               </div>

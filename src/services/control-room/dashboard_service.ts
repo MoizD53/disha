@@ -52,7 +52,7 @@ export async function getDashboardOverview() {
   const hbMap = new Map(latestHeartbeats.map(h => [h.personnelId, h]));
 
   const now = Date.now();
-  const LOC_STALE_THRESHOLD_MS = 1000 * 60 * 3; // 3 mins for location
+  const LOC_STALE_THRESHOLD_MS = 1000 * 60 * 3; // 3 mins for active location
   const HB_STALE_THRESHOLD_MS = 1000 * 60 * 6; // 6 mins (missed 1 heartbeat)
   const HB_OFFLINE_THRESHOLD_MS = 1000 * 60 * 15; // 15 mins (missed multiple)
 
@@ -79,10 +79,10 @@ export async function getDashboardOverview() {
       locationStatus = "LOCATION UNAVAILABLE";
     } else if (lastSeen) {
        const timeDiff = now - lastSeen.getTime();
-       if (timeDiff > LOC_STALE_THRESHOLD_MS) {
-          locationStatus = "STALE";
-       } else {
+       if (timeDiff <= LOC_STALE_THRESHOLD_MS) {
           locationStatus = "TRACKING ACTIVE";
+       } else {
+          locationStatus = "STALE";
        }
     } else {
        locationStatus = "NO DATA";
@@ -113,6 +113,15 @@ export async function getDashboardOverview() {
        networkStatus = "OFFLINE";
     }
 
+    // Assess GPS accuracy rating
+    const accuracy = loc?.accuracy != null ? Number(loc.accuracy) : null;
+    let accuracyRating: "HIGH" | "MEDIUM" | "LOW" | null = null;
+    if (accuracy !== null) {
+      if (accuracy <= 25) accuracyRating = "HIGH";
+      else if (accuracy <= 50) accuracyRating = "MEDIUM";
+      else accuracyRating = "LOW";
+    }
+
     return {
       id: p.id,
       name: p.name,
@@ -130,6 +139,8 @@ export async function getDashboardOverview() {
         latitude: loc.latitude,
         longitude: loc.longitude,
         accuracy: loc.accuracy,
+        accuracyRating,
+        source: loc.source,
         recordedAt: new Date(loc.recordedAt as any)
       } : null,
       device: p.devices[0] ? {

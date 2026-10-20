@@ -138,6 +138,52 @@ test("API Route Handlers: Authentication and Authorization Verification", async 
     assert.strictEqual(invalidRes.status, 401);
   });
 
+  await t.test("POST /api/telemetry/batch accepts device Bearer token and processes batched points", async () => {
+    const { POST: batchHandler } = await import("../src/app/api/telemetry/batch/route");
+
+    const batchReq = new Request("http://localhost/api/telemetry/batch", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${deviceToken}`,
+      },
+      body: JSON.stringify({
+        locations: [
+          {
+            clientEventId: "batch-test-evt-1",
+            latitude: 22.8333,
+            longitude: 74.2562,
+            accuracy: 8.5,
+            recordedAt: new Date().toISOString(),
+            source: "GPS",
+            trackingMode: "NORMAL",
+            batteryLevel: 90,
+            networkState: "CELLULAR",
+          },
+          {
+            clientEventId: "batch-test-evt-2",
+            latitude: 22.8340,
+            longitude: 74.2570,
+            accuracy: 6.0,
+            recordedAt: new Date().toISOString(),
+            source: "GPS",
+            trackingMode: "NORMAL",
+            batteryLevel: 89,
+            networkState: "CELLULAR",
+          },
+        ],
+      }),
+    });
+
+    const batchRes = await batchHandler(batchReq);
+    assert.strictEqual(batchRes.status, 200);
+    const body = await batchRes.json();
+    assert.ok(Array.isArray(body.locations));
+    assert.strictEqual(body.locations.length, 2);
+    assert.strictEqual(body.locations[0].status, "accepted");
+    assert.strictEqual(body.locations[1].status, "accepted");
+  });
+
   await t.test("Cleanup test fixtures", async () => {
     await cleanOldFixtures(TEST_USER);
   });

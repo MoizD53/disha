@@ -116,26 +116,51 @@ export async function ingestLocationEvent(personnelId: string, input: LocationEv
 }
 
 export async function ingestBatch(personnelId: string, input: BatchIngestionInput) {
-  // Validate once for batch
-  await validateDeviceAuthorization(personnelId);
-  
+  // Validate authorization and active device once for the entire batch
+  const { device, session } = await validateDeviceAuthorization(personnelId);
+
+  const activeSOS = await prisma.sOSEvent.findFirst({
+    where: { personnelId, endedAt: null, status: "ACTIVE" }
+  });
+  const actualTrackingMode = activeSOS ? "SOS" : "NORMAL";
+
   const results = {
     locations: [] as unknown as Record<string, unknown>[],
     events: [] as unknown as Record<string, unknown>[]
   };
 
-  if (input.locations) {
+  if (input.locations && input.locations.length > 0) {
     for (const loc of input.locations) {
       try {
-        const res = await ingestSingleLocation(personnelId, loc);
-        results.locations.push({ clientEventId: loc.clientEventId, ...res });
+        const location = await prisma.location.create({
+          data: {
+            clientEventId: loc.clientEventId,
+            personnelId: personnelId,
+            deviceId: device.id,
+            dutySessionId: session?.id ?? null,
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            accuracy: loc.accuracy,
+            recordedAt: loc.recordedAt,
+            source: loc.source,
+            trackingMode: actualTrackingMode,
+            batteryLevel: loc.batteryLevel ?? null,
+            networkState: loc.networkState ?? null,
+          },
+        });
+        results.locations.push({ clientEventId: loc.clientEventId, status: "accepted", locationId: location.id, receivedAt: location.receivedAt });
       } catch (err: unknown) {
-         results.locations.push({ clientEventId: loc.clientEventId, status: "error", error: (err as any)?.message });
+        if ((err as any)?.message?.includes("UNIQUE constraint failed") || (err as any)?.code === "P2002") {
+          const existing = await prisma.location.findUnique({ where: { clientEventId: loc.clientEventId } });
+          results.locations.push({ clientEventId: loc.clientEventId, status: "deduplicated", locationId: existing?.id, receivedAt: existing?.receivedAt });
+        } else {
+          results.locations.push({ clientEventId: loc.clientEventId, status: "error", error: (err as any)?.message });
+        }
       }
     }
   }
 
-  if (input.events) {
+  if (input.events && input.events.length > 0) {
     for (const ev of input.events) {
       try {
         const res = await ingestLocationEvent(personnelId, ev);

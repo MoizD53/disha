@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export type DashboardPersonnel = {
   id: string;
@@ -17,6 +17,8 @@ export type DashboardPersonnel = {
     latitude: number;
     longitude: number;
     accuracy: number;
+    accuracyRating?: "HIGH" | "MEDIUM" | "LOW" | null;
+    source?: string;
     recordedAt: string;
   } | null;
   device: {
@@ -33,53 +35,87 @@ export function useDashboardData(intervalMs: number = 5000) {
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const fetchData = useCallback(async (abortController?: AbortController) => {
+  const activeControllerRef = useRef<AbortController | null>(null);
+  const isFetchingRef = useRef(false);
+  const lastFetchTimeRef = useRef<number>(0);
+
+  const fetchData = useCallback(async () => {
+    // Avoid concurrent overlapping requests
+    if (isFetchingRef.current) return;
+
+    // Abort previous in-flight request if still running
+    if (activeControllerRef.current) {
+      activeControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
+    isFetchingRef.current = true;
+
     try {
       const res = await fetch("/api/control-room/overview", {
-        signal: abortController?.signal
+        signal: controller.signal,
+        headers: { "Cache-Control": "no-cache" }
       });
+
       if (!res.ok) {
-        throw new Error(await res.text());
+        const errorText = await res.text();
+        throw new Error(`Overview fetch failed (${res.status}): ${errorText}`);
       }
+
       const json = await res.json();
       setData(json);
       setLastUpdated(new Date());
       setError(null);
+      lastFetchTimeRef.current = Date.now();
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
-         setError(err instanceof Error ? err : new Error(String(err)));
+        console.error("Dashboard overview polling error:", err);
+        setError(err instanceof Error ? err : new Error(String(err)));
       }
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
-    const controller = new AbortController();
+    let isMounted = true;
 
-    const loop = async () => {
-      // Pause if tab is hidden
-      if (document.visibilityState === 'visible') {
-        await fetchData(controller);
+    const pollLoop = async () => {
+      if (!isMounted) return;
+
+      // Only fetch if tab is visible
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        await fetchData();
       }
-      if (!controller.signal.aborted) {
-        timeoutId = setTimeout(loop, intervalMs);
+
+      if (isMounted) {
+        timeoutId = setTimeout(pollLoop, intervalMs);
       }
     };
 
-    loop();
+    pollLoop();
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        fetchData();
+        // Debounce: only trigger if more than 2 seconds since last fetch
+        const elapsed = Date.now() - lastFetchTimeRef.current;
+        if (elapsed > 2000) {
+          fetchData();
+        }
       }
     };
+
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
-      controller.abort();
+      isMounted = false;
       clearTimeout(timeoutId);
+      if (activeControllerRef.current) {
+        activeControllerRef.current.abort();
+      }
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [fetchData, intervalMs]);
