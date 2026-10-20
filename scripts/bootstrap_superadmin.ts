@@ -80,14 +80,14 @@ async function bootstrap() {
         status: UserStatus.ACTIVE,
         displayName: existing.displayName || "Super Administrator",
         passwordHash,
-        mustChangePassword: true,
+        mustChangePassword: false,
       },
     });
     console.log(`[SUCCESS] Existing Super Admin '${username}' updated successfully.`);
     console.log(`- Role: SP (Super Admin)`);
     console.log(`- Status: ACTIVE`);
     console.log(`- Password: Securely hashed with Argon2id`);
-    console.log(`- Must Change Password: true`);
+    console.log(`- Must Change Password: false`);
   } else {
     await prisma.user.create({
       data: {
@@ -97,14 +97,14 @@ async function bootstrap() {
         status: UserStatus.ACTIVE,
         passwordHash,
         permissions: "[]",
-        mustChangePassword: true,
+        mustChangePassword: false,
       },
     });
     console.log(`[SUCCESS] Super Admin '${username}' created successfully.`);
     console.log(`- Role: SP (Super Admin)`);
     console.log(`- Status: ACTIVE`);
     console.log(`- Password: Securely hashed with Argon2id`);
-    console.log(`- Must Change Password: true`);
+    console.log(`- Must Change Password: false`);
   }
 }
 

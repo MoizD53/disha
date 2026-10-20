@@ -79,14 +79,12 @@ export default function ChangePasswordModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
       <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
-        {!isForced && (
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
-          >
-            <X size={18} />
-          </button>
-        )}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+        >
+          <X size={18} />
+        </button>
 
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center flex-shrink-0">
@@ -94,12 +92,10 @@ export default function ChangePasswordModal({
           </div>
           <div>
             <h3 className="text-base font-bold text-white">
-              {isForced ? "Initial Password Setup Required" : "Change Password"}
+              Change Password
             </h3>
             <p className="text-xs text-slate-400">
-              {isForced
-                ? "For security, you must change your initial temporary password before continuing."
-                : "Enter your current password and choose a secure new one."}
+              Enter your current password and choose a secure new one.
             </p>
           </div>
         </div>
@@ -121,7 +117,7 @@ export default function ChangePasswordModal({
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Current / Temporary Password
+                Current Password
               </label>
               <div className="relative">
                 <input
@@ -180,22 +176,20 @@ export default function ChangePasswordModal({
             </div>
 
             <div className="pt-2 flex items-center justify-end gap-2.5">
-              {!isForced && (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition"
-                >
-                  Cancel
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition"
+              >
+                Cancel
+              </button>
               <button
                 type="submit"
                 disabled={loading}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-xs font-semibold text-white transition shadow-lg shadow-sky-600/20"
               >
                 {loading && <Loader2 size={13} className="animate-spin" />}
-                {isForced ? "Save New Password & Continue" : "Update Password"}
+                Update Password
               </button>
             </div>
           </form>

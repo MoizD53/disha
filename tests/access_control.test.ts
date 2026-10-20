@@ -213,7 +213,7 @@ test("Access Control & Account Management (Phase 1 RBAC)", async (t) => {
     const deactSuperRes = await updateAdminHandler(deactSuperReq, { params: Promise.resolve({ id: superAdminUser.id }) });
     assert.strictEqual(deactSuperRes.status, 400);
 
-    // 3. Reset admin password sets mustChangePassword to true
+    // 3. Reset admin password leaves mustChangePassword as false
     const resetReq = new Request(`http://localhost/api/admin/users/${createdAdmin.id}/reset-password`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: `disha_session=${superAdminToken}` },
@@ -223,7 +223,7 @@ test("Access Control & Account Management (Phase 1 RBAC)", async (t) => {
     assert.strictEqual(resetRes.status, 200);
 
     const refreshedAdmin = await prisma.user.findUnique({ where: { id: createdAdmin.id } });
-    assert.strictEqual(refreshedAdmin?.mustChangePassword, true);
+    assert.strictEqual(refreshedAdmin?.mustChangePassword, false);
   });
 
   await t.test("Staff Management: Edit staff, reset staff password, and toggle active state", async () => {
@@ -254,7 +254,7 @@ test("Access Control & Account Management (Phase 1 RBAC)", async (t) => {
     assert.strictEqual(updateBody.staff.designation, "Head Constable");
     assert.strictEqual(updateBody.staff.active, false);
 
-    // 2. Reset staff password sets mustChangePassword to true
+    // 2. Reset staff password leaves mustChangePassword as false
     const resetReq = new Request(`http://localhost/api/staff/${staffId}/reset-password`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: `disha_session=${staffOnlyAdminToken}` },
@@ -264,7 +264,7 @@ test("Access Control & Account Management (Phase 1 RBAC)", async (t) => {
     assert.strictEqual(resetRes.status, 200);
 
     const refreshedStaffUser = await prisma.user.findUnique({ where: { id: staffUser.id } });
-    assert.strictEqual(refreshedStaffUser?.mustChangePassword, true);
+    assert.strictEqual(refreshedStaffUser?.mustChangePassword, false);
   });
 
   await t.test("Live Map: Only admins with LIVE_MAP permission can fetch live overview", async () => {

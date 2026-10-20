@@ -71,7 +71,7 @@ export async function POST(req: Request) {
         role: UserRole.FIELD_PERSONNEL,
         status: userStatus,
         permissions: "[]",
-        mustChangePassword: true,
+        mustChangePassword: false,
         personnel: {
           create: {
             personnelCode: data.personnelCode,

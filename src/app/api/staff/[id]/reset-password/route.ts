@@ -33,7 +33,7 @@ export async function POST(req: Request, props: { params: Promise<{ id: string }
       where: { id: personnel.userId },
       data: {
         passwordHash,
-        mustChangePassword: true,
+        mustChangePassword: false,
       },
     });
 

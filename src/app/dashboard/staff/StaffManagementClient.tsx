@@ -358,15 +358,9 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
 
                     {/* Password status */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      {staff.mustChangePassword ? (
-                        <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md">
-                          Temporary Pass
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-semibold text-slate-400">
-                          Verified
-                        </span>
-                      )}
+                      <span className="text-[10px] font-semibold text-slate-400">
+                        Verified
+                      </span>
                     </td>
 
                     {/* Actions */}
@@ -968,7 +962,7 @@ function ResetStaffPasswordModal({
                 required
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Enter new temporary password"
+                placeholder="Enter new password"
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 pr-10"
               />
               <button

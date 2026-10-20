@@ -55,7 +55,7 @@ export async function POST(req: Request) {
         role: UserRole.CONTROL_ROOM_OFFICER,
         status: data.status === "ACTIVE" ? UserStatus.ACTIVE : UserStatus.INACTIVE,
         permissions: JSON.stringify(data.permissions),
-        mustChangePassword: true,
+        mustChangePassword: false,
       },
       select: {
         id: true,

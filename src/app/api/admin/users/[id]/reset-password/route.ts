@@ -32,7 +32,7 @@ export async function POST(req: Request, props: { params: Promise<{ id: string }
       where: { id: adminId },
       data: {
         passwordHash,
-        mustChangePassword: true,
+        mustChangePassword: false,
       },
     });
 

@@ -200,13 +200,12 @@ export default function DashboardHeader({ initialUser }: { initialUser: HeaderUs
         </div>
       )}
 
-      {/* Password Change Modal (Manual trigger or Forced upon first login) */}
+      {/* Password Change Modal (Manual trigger only) */}
       <ChangePasswordModal
-        isOpen={showPasswordModal || user.mustChangePassword}
-        isForced={user.mustChangePassword}
+        isOpen={showPasswordModal}
+        isForced={false}
         onClose={() => setShowPasswordModal(false)}
         onSuccess={() => {
-          setUser((prev) => ({ ...prev, mustChangePassword: false }));
           setShowPasswordModal(false);
         }}
       />

@@ -363,15 +363,9 @@ export default function AdminManagementClient({
 
                     {/* Password status */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      {admin.mustChangePassword ? (
-                        <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md">
-                          Temporary (Change Required)
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-semibold text-slate-400">
-                          Active & Verified
-                        </span>
-                      )}
+                      <span className="text-[10px] font-semibold text-slate-400">
+                        Active & Verified
+                      </span>
                     </td>
 
                     {/* Actions */}
@@ -928,7 +922,7 @@ function ResetAdminPasswordModal({
           <div>
             <h3 className="text-base font-bold text-white">Reset Admin Password</h3>
             <p className="text-xs text-slate-400">
-              Set a temporary password for <span className="font-mono text-amber-300">@{admin.username}</span>
+              Set a new password for <span className="font-mono text-amber-300">@{admin.username}</span>
             </p>
           </div>
         </div>
@@ -951,7 +945,7 @@ function ResetAdminPasswordModal({
                 required
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Enter new temporary password"
+                placeholder="Enter new password"
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 pr-10"
               />
               <button
@@ -963,7 +957,7 @@ function ResetAdminPasswordModal({
               </button>
             </div>
             <p className="text-[11px] text-slate-500 mt-1">
-              The user will be required to change their password upon their next login.
+              Password will take effect immediately.
             </p>
           </div>
 
