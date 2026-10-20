@@ -47,6 +47,7 @@ class LocationTrackingService : Service(), LocationListener {
     private var heartbeatJob: Job? = null
     private var offlineSyncJob: Job? = null
     private var lastLocation: Location? = null
+    private var lastVerifiedLocation: Location? = null
     private var isTrackingStarted = false
 
     override fun onCreate() {
@@ -267,16 +268,25 @@ class LocationTrackingService : Service(), LocationListener {
             return
         }
 
-        // 4. Inferior fix dampening:
-        // If we currently have a fresh high-accuracy GPS fix (<= 15m) within the last 15 seconds,
-        // ignore coarse cellular bounces (> 80m) to prevent erratic jumping.
-        // If satellite lock is lost (> 15 seconds), we accept the network fix with its real reported accuracy.
+        // 4. Quality Selection & Coarse Fix Dampening:
+        // A location with accuracy <= 20.0m is VERIFIED.
+        // A location with accuracy > 20.0m is COARSE (e.g. 69m cell tower bounce).
+        // If we have a fresh verified fix (<= 20m) recorded within the last 60 seconds:
+        // Do NOT let a coarse fix (> 20m) displace our verified location on the building!
         val isSos = prefs.isSosActive
-        if (prev != null && prev.hasAccuracy() && prev.accuracy <= 15f && !isSos) {
-            val timeSinceLastFixMs = (SystemClock.elapsedRealtimeNanos() - prev.elapsedRealtimeNanos) / 1_000_000L
-            if (timeSinceLastFixMs < 15_000L && location.accuracy > 80f) {
+        val prevVerified = lastVerifiedLocation
+        if (location.hasAccuracy() && location.accuracy > 20f && prevVerified != null && !isSos) {
+            val verifiedAgeMs = (SystemClock.elapsedRealtimeNanos() - prevVerified.elapsedRealtimeNanos) / 1_000_000L
+            if (verifiedAgeMs < 60_000L) {
+                // Keep the verified location as primary, do not let coarse cellular bounce displace it
+                updateNotification(prevVerified, "GPS: ±${Math.round(prevVerified.accuracy)}m (Acquiring satellites...)")
                 return
             }
+        }
+
+        // If the new fix is verified (<= 20m), store it as our verified anchor
+        if (location.hasAccuracy() && location.accuracy <= 20f) {
+            lastVerifiedLocation = location
         }
 
         lastLocation = location
@@ -360,8 +370,8 @@ class LocationTrackingService : Service(), LocationListener {
                 val timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(location.time))
                 val accRating = when {
                     location.accuracy <= 10.0f -> "Optimal (≤10m)"
-                    location.accuracy <= 30.0f -> "Moderate"
-                    else -> "Coarse Fix"
+                    location.accuracy <= 20.0f -> "Verified (≤20m)"
+                    else -> "Low Accuracy (±${Math.round(location.accuracy)}m)"
                 }
                 String.format(
                     Locale.US,

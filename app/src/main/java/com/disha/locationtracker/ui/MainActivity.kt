@@ -59,10 +59,26 @@ class MainActivity : AppCompatActivity() {
         val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
         val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
 
-        if (fineGranted || coarseGranted) {
+        if (fineGranted) {
             checkBackgroundLocationPermission()
             checkDeviceLocationSettings()
             startContinuousTrackingIfReady()
+        } else if (coarseGranted) {
+            AlertDialog.Builder(this)
+                .setTitle("Precise Location Required")
+                .setMessage("Disha requires 'Precise Location' to achieve ≤20m GPS accuracy. Please enable 'Precise Location' in App Permissions.")
+                .setPositiveButton("Configure") { _, _ ->
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = android.net.Uri.fromParts("package", packageName, null)
+                    }
+                    startActivity(intent)
+                }
+                .setNegativeButton("Continue") { _, _ ->
+                    checkBackgroundLocationPermission()
+                    checkDeviceLocationSettings()
+                    startContinuousTrackingIfReady()
+                }
+                .show()
         } else {
             Toast.makeText(this, "Location permission is required for continuous tracking", Toast.LENGTH_LONG).show()
         }
@@ -225,12 +241,12 @@ class MainActivity : AppCompatActivity() {
         val acc = loc.accuracy
         val statusLabel = when {
             acc <= 10.0f -> "Optimal (≤10m Target Met)"
-            acc <= 30.0f -> "Moderate"
-            else -> "Coarse Fix (>30m)"
+            acc <= 20.0f -> "Verified (≤20m)"
+            else -> "Low Accuracy (>20m Searching GPS...)"
         }
         val accColor = when {
             acc <= 10.0f -> ContextCompat.getColor(this, R.color.success)
-            acc <= 30.0f -> ContextCompat.getColor(this, R.color.primary)
+            acc <= 20.0f -> ContextCompat.getColor(this, R.color.primary)
             else -> ContextCompat.getColor(this, R.color.warning)
         }
 
