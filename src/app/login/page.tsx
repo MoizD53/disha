@@ -61,17 +61,11 @@ export default function LoginPage() {
             <ShieldCheck className="h-8 w-8 sm:h-9 sm:w-9 text-sky-400" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-[0.25em] text-white">DISHA</h1>
-          <p className="mt-1 sm:mt-1.5 text-xs sm:text-sm text-slate-400">
-            Field Personnel Tracking &amp; Command Center
-          </p>
         </div>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/90 p-5 sm:p-8 shadow-2xl backdrop-blur-md">
           <div className="mb-6">
-            <h2 className="text-lg sm:text-xl font-bold text-white">Control Room Login</h2>
-            <p className="mt-1 text-xs sm:text-sm text-slate-400">
-              Sign in with your authorized dispatch credentials.
-            </p>
+            <h2 className="text-lg sm:text-xl font-bold text-white">Admin Login</h2>
           </div>
 
           <form onSubmit={handleLogin} suppressHydrationWarning className="space-y-4 sm:space-y-5">
@@ -137,7 +131,7 @@ export default function LoginPage() {
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-500 hover:bg-sky-400 py-3 sm:py-3.5 font-bold text-xs sm:text-sm text-slate-950 transition-all shadow-lg shadow-sky-500/20 active:scale-98 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {loading ? "Verifying..." : "Sign In to Command Center"}
+              {loading ? "Verifying..." : "Sign In"}
             </button>
           </form>
 
