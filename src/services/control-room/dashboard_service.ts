@@ -1,4 +1,9 @@
 import { prisma } from "@/lib/prisma";
+import {
+  getHeartbeatTimeoutMs,
+  getHeartbeatStaleMs,
+  getLocationStaleMs,
+} from "@/lib/config/inactivity";
 
 export async function getDashboardOverview() {
   const [personnelList, latestLocations, latestEvents, latestHeartbeats] = await Promise.all([
@@ -6,19 +11,19 @@ export async function getDashboardOverview() {
       where: { active: true },
       include: {
         devices: {
-          where: { status: 'ACTIVE' },
-          take: 1
+          orderBy: { registeredAt: "desc" },
+          take: 1,
         },
         dutySessions: {
           where: { endedAt: null },
-          take: 1
+          take: 1,
         },
         sosEvents: {
-          where: { status: 'ACTIVE' },
+          where: { status: "ACTIVE" },
           take: 1,
-          include: { alerts: { where: { status: { not: 'RESOLVED' } } } }
-        }
-      }
+          include: { alerts: { where: { status: { not: "RESOLVED" } } } },
+        },
+      },
     }),
     prisma.$queryRaw<any[]>`
       SELECT l.* FROM "Location" l
@@ -46,70 +51,87 @@ export async function getDashboardOverview() {
     `,
   ]);
 
-  const locMap = new Map(latestLocations.map(l => [l.personnelId, l]));
-  const evMap = new Map(latestEvents.map(e => [e.personnelId, e]));
-  const hbMap = new Map(latestHeartbeats.map(h => [h.personnelId, h]));
+  const locMap = new Map(latestLocations.map((l) => [l.personnelId, l]));
+  const evMap = new Map(latestEvents.map((e) => [e.personnelId, e]));
+  const hbMap = new Map(latestHeartbeats.map((h) => [h.personnelId, h]));
 
   const now = Date.now();
-  const LOC_STALE_THRESHOLD_MS = 1000 * 60 * 3; // 3 mins for active location
-  const HB_STALE_THRESHOLD_MS = 1000 * 60 * 6; // 6 mins (missed 1 heartbeat)
-  const HB_OFFLINE_THRESHOLD_MS = 1000 * 60 * 15; // 15 mins (missed multiple)
+  const LOC_STALE_THRESHOLD_MS = getLocationStaleMs(); // 3 mins default
+  const HB_TIMEOUT_MS = getHeartbeatTimeoutMs(); // 2 mins default
+  const HB_STALE_THRESHOLD_MS = getHeartbeatStaleMs(); // 75 secs default
 
-  return personnelList.map(p => {
+  return personnelList.map((p) => {
     const loc = locMap.get(p.id);
     const ev = evMap.get(p.id);
     const hb = hbMap.get(p.id);
     const activeDuty = p.dutySessions[0] || null;
     const activeSOS = p.sosEvents[0] || null;
-
-    // Location State Logic
-    let locationStatus = "NO DATA";
-    let lastSeen: Date | null = null;
+    const primaryDevice = p.devices[0] || null;
+    const isDeviceSignedOut = !primaryDevice || primaryDevice.status === "INACTIVE";
 
     const locTime = loc ? new Date(loc.recordedAt).getTime() : 0;
     const evTime = ev ? new Date(ev.recordedAt).getTime() : 0;
-    
-    if (loc) lastSeen = new Date(loc.recordedAt);
-    if (ev && evTime > locTime) lastSeen = new Date(ev.recordedAt);
+    const hbTime = hb ? new Date(hb.recordedAt).getTime() : 0;
 
-    if (!activeDuty) {
-      locationStatus = "OFF DUTY";
-    } else if (ev && ev.eventType === 'LOCATION_UNAVAILABLE' && evTime >= locTime) {
-      locationStatus = "LOCATION UNAVAILABLE";
-    } else if (lastSeen) {
-       const timeDiff = now - lastSeen.getTime();
-       if (timeDiff <= LOC_STALE_THRESHOLD_MS) {
-          locationStatus = "TRACKING ACTIVE";
-       } else {
-          locationStatus = "STALE";
-       }
-    } else {
-       locationStatus = "NO DATA";
-    }
-
-    // Device Health Logic
+    // Device & Network Connection Status
     let deviceStatus = "ONLINE";
     let networkStatus = "ONLINE";
     let lastHeartbeat: Date | null = null;
 
-    if (hb) {
-       lastHeartbeat = new Date(hb.recordedAt);
-       const hbDiff = now - lastHeartbeat.getTime();
-       if (hbDiff > HB_OFFLINE_THRESHOLD_MS) {
-          deviceStatus = "OFFLINE";
-          networkStatus = "OFFLINE"; // Fallback implication if heartbeats stop
-       } else if (hbDiff > HB_STALE_THRESHOLD_MS) {
-          deviceStatus = "STALE";
-       }
-       if (hb.networkState === 'OFFLINE') networkStatus = "OFFLINE";
+    if (isDeviceSignedOut) {
+      deviceStatus = "OFFLINE";
+      networkStatus = "OFFLINE";
+    } else if (hb) {
+      lastHeartbeat = new Date(hb.recordedAt);
+      const hbDiff = now - lastHeartbeat.getTime();
+      if (hbDiff > HB_TIMEOUT_MS) {
+        deviceStatus = "OFFLINE";
+        networkStatus = "OFFLINE";
+      } else if (hbDiff > HB_STALE_THRESHOLD_MS) {
+        deviceStatus = "STALE";
+        networkStatus = hb.networkState === "OFFLINE" ? "OFFLINE" : "ONLINE";
+      } else {
+        deviceStatus = "ONLINE";
+        networkStatus = hb.networkState === "OFFLINE" ? "OFFLINE" : "ONLINE";
+      }
     } else {
-       deviceStatus = "OFFLINE"; // No heartbeats ever received
-       networkStatus = "UNKNOWN";
+      deviceStatus = "OFFLINE";
+      networkStatus = "OFFLINE";
     }
 
-    // Explicit network lost events still trump normal status if recent
-    if (ev && ev.eventType === 'NETWORK_LOST' && evTime > (hb ? new Date(hb.recordedAt as any).getTime() : 0)) {
-       networkStatus = "OFFLINE";
+    // Explicit network lost or signout events still trump normal status if recent
+    if (
+      ev &&
+      (ev.eventType === "NETWORK_LOST" || ev.eventType === "LOCATION_UNAVAILABLE") &&
+      evTime > (hb ? new Date(hb.recordedAt as any).getTime() : 0)
+    ) {
+      networkStatus = "OFFLINE";
+      deviceStatus = "OFFLINE";
+    }
+
+    // Last Contact Timestamp: reflects latest valid interaction across telemetry, heartbeats, or events
+    let lastSeen: Date | null = null;
+    const latestActiveTime = Math.max(locTime, evTime, hbTime);
+    if (latestActiveTime > 0) {
+      lastSeen = new Date(latestActiveTime);
+    }
+
+    // Location State Logic (decoupled from duty status)
+    let locationStatus = "NO DATA";
+    if (!activeDuty) {
+      locationStatus = "OFF DUTY";
+    } else if (ev && ev.eventType === "LOCATION_UNAVAILABLE" && evTime >= locTime) {
+      locationStatus = "LOCATION UNAVAILABLE";
+    } else if (loc) {
+      const timeDiff = now - locTime;
+      // Mark location stale if location threshold is exceeded OR if device connection is offline
+      if (timeDiff <= LOC_STALE_THRESHOLD_MS && deviceStatus === "ONLINE") {
+        locationStatus = "TRACKING ACTIVE";
+      } else {
+        locationStatus = "STALE";
+      }
+    } else {
+      locationStatus = "NO DATA";
     }
 
     // Assess GPS accuracy rating and age
@@ -141,21 +163,26 @@ export async function getDashboardOverview() {
       sosStatus: activeSOS ? "SOS ACTIVE" : "NONE",
       lastSeen,
       lastHeartbeat,
-      location: loc ? {
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-        accuracy: loc.accuracy,
-        accuracyRating,
-        accuracyAgeSeconds,
-        source: loc.source,
-        recordedAt: new Date(loc.recordedAt as any)
-      } : null,
-      device: p.devices[0] ? {
-        identifier: p.devices[0].deviceIdentifier,
-        batteryLevel: loc?.batteryLevel ?? null
-      } : null,
+      location: loc
+        ? {
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            accuracy: loc.accuracy,
+            accuracyRating,
+            accuracyAgeSeconds,
+            source: loc.source,
+            recordedAt: new Date(loc.recordedAt as any),
+          }
+        : null,
+      device: primaryDevice
+        ? {
+            identifier: primaryDevice.deviceIdentifier,
+            batteryLevel: loc?.batteryLevel ?? hb?.batteryLevel ?? null,
+            status: deviceStatus,
+          }
+        : null,
       activeSOSId: activeSOS?.id ?? null,
-      activeAlertId: activeSOS?.alerts?.[0]?.id ?? null
+      activeAlertId: activeSOS?.alerts?.[0]?.id ?? null,
     };
   });
 }

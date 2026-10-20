@@ -290,7 +290,7 @@ export default function PersonnelList({
                 </div>
               </div>
 
-              {/* Bottom Info: Battery, Last Seen, Offline */}
+              {/* Bottom Info: Battery, Last Seen, Connection Status */}
               <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 mt-1 border-t border-slate-800/60">
                 <span className="truncate">
                   {p.lastSeen ? `Seen ${formatIST(p.lastSeen)}` : "No contact recorded"}
@@ -298,11 +298,26 @@ export default function PersonnelList({
 
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {renderBattery(p.device?.batteryLevel)}
-                  {p.networkStatus === "OFFLINE" && (
-                    <span className="text-rose-400 flex items-center gap-0.5 text-[10px] font-semibold" title="Device Offline">
-                      <WifiOff size={11} /> Offline
-                    </span>
-                  )}
+                  <span
+                    className={`flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      p.deviceStatus === "ONLINE"
+                        ? "bg-emerald-950/60 text-emerald-300 border border-emerald-800/50"
+                        : p.deviceStatus === "STALE"
+                          ? "bg-amber-950/60 text-amber-300 border border-amber-800/50"
+                          : "bg-rose-950/60 text-rose-300 border border-rose-800/50"
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        p.deviceStatus === "ONLINE"
+                          ? "bg-emerald-400 animate-pulse"
+                          : p.deviceStatus === "STALE"
+                            ? "bg-amber-400"
+                            : "bg-rose-400"
+                      }`}
+                    />
+                    {p.deviceStatus}
+                  </span>
                 </div>
               </div>
             </div>

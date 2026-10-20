@@ -70,6 +70,13 @@ export async function ingestSingleLocation(personnelId: string, input: SingleLoc
         networkState: input.networkState ?? null,
       },
     });
+
+    // Keep device lastSeenAt and ACTIVE status fresh on incoming location telemetry
+    await prisma.device.update({
+      where: { id: device.id },
+      data: { lastSeenAt: new Date(), status: "ACTIVE" },
+    });
+
     return { status: "accepted", locationId: location.id, receivedAt: location.receivedAt };
   } catch (error: unknown) {
     if ((error as any)?.message?.includes("UNIQUE constraint failed") || (error as any)?.code === "P2002") {

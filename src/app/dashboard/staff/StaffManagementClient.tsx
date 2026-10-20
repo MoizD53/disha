@@ -22,6 +22,7 @@ import {
   BadgeCheck,
   Trash2,
 } from "lucide-react";
+import { formatIST } from "@/lib/utils/time";
 
 export type StaffMember = {
   id: string;
@@ -34,12 +35,15 @@ export type StaffMember = {
   phone: string | null;
   active: boolean;
   status: "ACTIVE" | "INACTIVE";
+  connectionStatus?: "ONLINE" | "OFFLINE";
+  lastSeenAt?: string | null;
   mustChangePassword: boolean;
   device: {
     id: string;
     deviceIdentifier: string;
     platform: string;
     status: string;
+    connectionStatus?: "ONLINE" | "OFFLINE";
     lastSeenAt: string | null;
   } | null;
   activeDuty: {
@@ -88,7 +92,23 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
     if (!initialStaff) {
       fetchStaff();
     }
-  }, []);
+
+    // Auto-refresh polling every 10 seconds to update worker connection status automatically
+    const timer = setInterval(() => {
+      if (!createModalOpen && !editingStaff && !resetPasswordStaff && !deletingStaff) {
+        fetch("/api/staff")
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (data?.staff) {
+              setStaffList(data.staff);
+            }
+          })
+          .catch(() => {});
+      }
+    }, 10000);
+
+    return () => clearInterval(timer);
+  }, [createModalOpen, editingStaff, resetPasswordStaff, deletingStaff, initialStaff]);
 
   const showNotification = (message: string, type: "success" | "error" = "success") => {
     setNotification({ type, message });
@@ -276,8 +296,9 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
                 <tr>
                   <th className="py-3 px-4">Staff Member</th>
                   <th className="py-3 px-4">Login ID</th>
-                  <th className="py-3 px-4">Phone</th>
+                  <th className="py-3 px-4">Connection</th>
                   <th className="py-3 px-4">Duty Status</th>
+                  <th className="py-3 px-4">Phone</th>
                   <th className="py-3 px-4">Account Status</th>
                   <th className="py-3 px-4">Credentials</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -305,16 +326,22 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
                       @{staff.username}
                     </td>
 
-                    {/* Phone */}
+                    {/* Connection Status */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      {staff.phone ? (
-                        <div className="flex items-center gap-1 text-slate-300 font-mono text-[11px]">
-                          <Phone size={11} className="text-slate-500" />
-                          <span>{staff.phone}</span>
-                        </div>
-                      ) : (
-                        <span className="text-slate-500 italic">â€”</span>
-                      )}
+                      <div className="flex flex-col gap-0.5">
+                        {staff.connectionStatus === "ONLINE" ? (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 uppercase w-fit">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Online
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700 w-fit">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-500" /> Offline
+                          </span>
+                        )}
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {staff.lastSeenAt ? `Seen ${formatIST(staff.lastSeenAt)}` : "Never"}
+                        </span>
+                      </div>
                     </td>
 
                     {/* Duty Status */}
@@ -327,6 +354,18 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
                           Off Duty
                         </span>
+                      )}
+                    </td>
+
+                    {/* Phone */}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      {staff.phone ? (
+                        <div className="flex items-center gap-1 text-slate-300 font-mono text-[11px]">
+                          <Phone size={11} className="text-slate-500" />
+                          <span>{staff.phone}</span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-500 italic">—</span>
                       )}
                     </td>
 

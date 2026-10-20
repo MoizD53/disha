@@ -9,7 +9,7 @@ const heartbeatSchema = z.object({
   networkState: z.string().nullable().optional(),
   appVersion: z.string().nullable().optional(),
   healthState: z.string().nullable().optional(),
-  recordedAt: z.string().transform(str => new Date(str))
+  recordedAt: z.string().transform((str) => new Date(str)),
 });
 
 export async function POST(req: Request) {
@@ -35,17 +35,27 @@ export async function POST(req: Request) {
       device = auth.device;
     }
 
-    const heartbeat = await prisma.heartbeat.create({
-      data: {
-        deviceId: device.id,
-        personnelId: parsed.personnelId,
-        batteryLevel: parsed.batteryLevel,
-        networkState: parsed.networkState,
-        appVersion: parsed.appVersion,
-        healthState: parsed.healthState,
-        recordedAt: parsed.recordedAt
-      }
-    });
+    const [heartbeat] = await Promise.all([
+      prisma.heartbeat.create({
+        data: {
+          deviceId: device.id,
+          personnelId: parsed.personnelId,
+          batteryLevel: parsed.batteryLevel,
+          networkState: parsed.networkState,
+          appVersion: parsed.appVersion,
+          healthState: parsed.healthState,
+          recordedAt: parsed.recordedAt,
+        },
+      }),
+      // Automatically restore ONLINE status and update lastSeenAt
+      prisma.device.update({
+        where: { id: device.id },
+        data: {
+          lastSeenAt: new Date(),
+          status: "ACTIVE",
+        },
+      }),
+    ]);
 
     return NextResponse.json({ status: "accepted", heartbeatId: heartbeat.id });
   } catch (error: any) {

@@ -251,10 +251,15 @@ export default function PersonnelDetail({ personnel, onClose, className = "" }: 
             <div className="flex justify-between items-center">
               <span className="text-slate-400">Network Link</span>
               <span
-                className={`font-bold ${
-                  personnel.networkStatus === "ONLINE" ? "text-blue-400" : "text-rose-400"
+                className={`font-bold flex items-center gap-1.5 ${
+                  personnel.networkStatus === "ONLINE" ? "text-emerald-400" : "text-rose-400"
                 }`}
               >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    personnel.networkStatus === "ONLINE" ? "bg-emerald-400" : "bg-rose-400"
+                  }`}
+                />
                 {personnel.networkStatus}
               </span>
             </div>
