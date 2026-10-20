@@ -53,9 +53,23 @@ export async function clearSessionCookie() {
   cookieStore.delete(SESSION_COOKIE_NAME);
 }
 
-export async function getSession(): Promise<{ user: AuthenticatedUser | null; session: Session | null }> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+export async function getSession(req?: Request): Promise<{ user: AuthenticatedUser | null; session: Session | null }> {
+  let token: string | undefined;
+
+  if (req) {
+    const cookieHeader = req.headers.get("cookie") || "";
+    const match = cookieHeader.match(new RegExp(`(?:^|; )${SESSION_COOKIE_NAME}=([^;]*)`));
+    if (match) token = match[1];
+  }
+
+  if (!token) {
+    try {
+      const cookieStore = await cookies();
+      token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    } catch {
+      // outside Next.js request context (e.g., in unit test runner)
+    }
+  }
   
   if (!token) {
     return { user: null, session: null };
@@ -96,7 +110,7 @@ export async function getSession(): Promise<{ user: AuthenticatedUser | null; se
         data: { expiresAt: newExpiresAt }
       }).catch(() => {});
       session.expiresAt = newExpiresAt;
-      await setSessionCookie(token, newExpiresAt);
+      await setSessionCookie(token, newExpiresAt).catch(() => {});
     }
 
     return { user: session.user as AuthenticatedUser, session };

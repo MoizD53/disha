@@ -31,7 +31,10 @@ model User {
   username     String     @unique
   passwordHash String
   role         UserRole
-  status       UserStatus @default(ACTIVE)
+  status             UserStatus @default(ACTIVE)
+  displayName        String?
+  permissions        String?    @default("[]")
+  mustChangePassword Boolean    @default(false)
 
   personnel Personnel?
   sessions  Session[]

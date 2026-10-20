@@ -1,8 +1,8 @@
 import { getSession } from "./session";
 import { UserRole } from "../../../generated/prisma/enums";
 
-export async function requireAuth() {
-  const { user, session } = await getSession();
+export async function requireAuth(req?: Request) {
+  const { user, session } = await getSession(req);
   
   if (!user || !session) {
     throw new Error("UNAUTHORIZED");
@@ -11,8 +11,8 @@ export async function requireAuth() {
   return { user, session };
 }
 
-export async function requireRole(allowedRoles: UserRole[]) {
-  const { user, session } = await requireAuth();
+export async function requireRole(allowedRoles: UserRole[], req?: Request) {
+  const { user, session } = await requireAuth(req);
 
   if (!allowedRoles.includes(user.role as UserRole)) {
     throw new Error("FORBIDDEN");
@@ -22,8 +22,8 @@ export async function requireRole(allowedRoles: UserRole[]) {
 }
 
 // Helper to assert field personnel isolation
-export async function requirePersonnelMatch(requestedPersonnelId: string) {
-  const { user, session } = await requireAuth();
+export async function requirePersonnelMatch(requestedPersonnelId: string, req?: Request) {
+  const { user, session } = await requireAuth(req);
   
   if (user.role === UserRole.FIELD_PERSONNEL) {
     if (!user.personnel || user.personnel.id !== requestedPersonnelId) {
@@ -47,7 +47,7 @@ export async function requireDeviceAuth(req: Request) {
   }
 
   // Fallback to cookie auth for MVP backward compatibility
-  const { user, session } = await requireAuth();
+  const { user, session } = await requireAuth(req);
   if (!user.personnel) {
     throw new Error("FORBIDDEN");
   }
@@ -62,6 +62,5 @@ export async function requireDeviceAuth(req: Request) {
     throw new Error("FORBIDDEN");
   }
 
-  return { device, personnel: user.personnel, isBearer: false, session };
+  return { device, personnel: user.personnel, isBearer: false, user, session };
 }
-

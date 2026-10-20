@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
-import { requireAuth, requireRole } from "@/lib/auth/authorization";
+import { requirePermission } from "@/lib/auth/permissions";
 import { getDashboardOverview } from "@/services/control-room/dashboard_service";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    await requireAuth();
-    await requireRole(["CONTROL_ROOM_OFFICER", "DYSP", "SP"]);
+    await requirePermission("LIVE_MAP", req);
     
     const data = await getDashboardOverview();
     return NextResponse.json(data);
   } catch (error: any) {
     if (error.message === "UNAUTHORIZED") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (error.message === "FORBIDDEN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (error.message === "FORBIDDEN") return NextResponse.json({ error: "Forbidden: Live Map permission required" }, { status: 403 });
     
     console.error("Dashboard overview error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

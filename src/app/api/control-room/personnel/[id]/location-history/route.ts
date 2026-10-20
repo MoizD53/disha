@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
-import { requireAuth, requireRole } from "@/lib/auth/authorization";
+import { requirePermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/auth/audit";
 
-export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
   try {
-    const { user } = await requireAuth();
-    await requireRole(["CONTROL_ROOM_OFFICER", "DYSP", "SP"]);
+    const { user } = await requirePermission("LIVE_MAP", req);
     
-    const resolvedParams = await params;
+    const resolvedParams = await props.params;
     const personnelId = resolvedParams.id;
     
     const { searchParams } = new URL(req.url);
@@ -60,7 +59,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ locations });
   } catch (error: any) {
     if (error.message === "UNAUTHORIZED") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (error.message === "FORBIDDEN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (error.message === "FORBIDDEN") return NextResponse.json({ error: "Forbidden: Live Map permission required" }, { status: 403 });
     
     console.error("History overview error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
