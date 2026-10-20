@@ -12,7 +12,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
 
 export function isSuperAdmin(user: { role: string } | null | undefined): boolean {
   if (!user) return false;
-  return user.role === "SP";
+  const role = user.role?.toUpperCase();
+  return role === "SP" || role === "SUPER_ADMIN";
 }
 
 export function getUserPermissions(
