@@ -112,13 +112,20 @@ export async function getDashboardOverview() {
        networkStatus = "OFFLINE";
     }
 
-    // Assess GPS accuracy rating
+    // Assess GPS accuracy rating and age
     const accuracy = loc?.accuracy != null ? Number(loc.accuracy) : null;
-    let accuracyRating: "HIGH" | "MEDIUM" | "LOW" | null = null;
+    let accuracyRating: "OPTIMAL" | "MODERATE" | "COARSE" | null = null;
+    let accuracyAgeSeconds: number | null = null;
+
+    if (loc) {
+      const recTime = new Date(loc.recordedAt as any).getTime();
+      accuracyAgeSeconds = Math.max(0, Math.floor((now - recTime) / 1000));
+    }
+
     if (accuracy !== null) {
-      if (accuracy <= 25) accuracyRating = "HIGH";
-      else if (accuracy <= 50) accuracyRating = "MEDIUM";
-      else accuracyRating = "LOW";
+      if (accuracy <= 10.0) accuracyRating = "OPTIMAL";
+      else if (accuracy <= 30.0) accuracyRating = "MODERATE";
+      else accuracyRating = "COARSE";
     }
 
     return {
@@ -139,6 +146,7 @@ export async function getDashboardOverview() {
         longitude: loc.longitude,
         accuracy: loc.accuracy,
         accuracyRating,
+        accuracyAgeSeconds,
         source: loc.source,
         recordedAt: new Date(loc.recordedAt as any)
       } : null,

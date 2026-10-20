@@ -140,6 +140,55 @@ test("Telemetry Ingestion and Events - Decoupled 24/7", async (t) => {
     );
   });
 
+  await t.test("Payload validation: normalize FUSED, CELLULAR, and enforce accuracy", async () => {
+    // Fused source normalized to GPS
+    const payloadFused = singleLocationSchema.parse({
+      clientEventId: randomUUID(),
+      latitude: 22.83,
+      longitude: 74.25,
+      accuracy: 8.5, // <= 10m target met
+      recordedAt: new Date().toISOString(),
+      source: "FUSED",
+    });
+    assert.strictEqual(payloadFused.source, "GPS");
+    assert.strictEqual(payloadFused.accuracy, 8.5);
+
+    // Cellular source normalized to NETWORK
+    const payloadCellular = singleLocationSchema.parse({
+      clientEventId: randomUUID(),
+      latitude: 22.83,
+      longitude: 74.25,
+      accuracy: 120.0, // Coarse fix
+      recordedAt: new Date().toISOString(),
+      source: "CELLULAR",
+    });
+    assert.strictEqual(payloadCellular.source, "NETWORK");
+    assert.strictEqual(payloadCellular.accuracy, 120.0);
+
+    // Out-of-bounds coordinates rejected
+    assert.throws(() => {
+      singleLocationSchema.parse({
+        clientEventId: randomUUID(),
+        latitude: 95.0, // Invalid latitude
+        longitude: 74.25,
+        accuracy: 10,
+        recordedAt: new Date().toISOString(),
+      });
+    });
+
+    // Stale timestamps older than 7 days rejected
+    assert.throws(() => {
+      const eightDaysAgo = new Date(Date.now() - 1000 * 60 * 60 * 24 * 8);
+      singleLocationSchema.parse({
+        clientEventId: randomUUID(),
+        latitude: 22.83,
+        longitude: 74.25,
+        accuracy: 10,
+        recordedAt: eightDaysAgo.toISOString(),
+      });
+    });
+  });
+
   await t.test("Cleanup", async () => {
     await prisma.location.deleteMany({ where: { personnelId: personnelA.id } });
     await prisma.locationEvent.deleteMany({ where: { personnelId: personnelA.id } });

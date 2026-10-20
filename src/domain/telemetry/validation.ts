@@ -16,13 +16,23 @@ const recordedAt = z.coerce.date().refine(
   { message: "recordedAt is outside acceptable tolerance (max 7 days past, 5 mins future)" }
 );
 
+// Flexible source schema that gracefully normalizes Fused/Cellular/WiFi identifiers into LocationSource enum
+const locationSourceSchema = z.preprocess((val) => {
+  if (typeof val === "string") {
+    const upper = val.toUpperCase().trim();
+    if (upper === "GPS" || upper === "FUSED" || upper === "FUSED_LAST_KNOWN") return LocationSource.GPS;
+    if (upper === "NETWORK" || upper === "CELLULAR" || upper === "WIFI") return LocationSource.NETWORK;
+  }
+  return val;
+}, z.nativeEnum(LocationSource)).default(LocationSource.UNKNOWN);
+
 export const singleLocationSchema = z.object({
   clientEventId,
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   accuracy: z.number().min(0),
   recordedAt,
-  source: z.nativeEnum(LocationSource).default(LocationSource.UNKNOWN),
+  source: locationSourceSchema,
   trackingMode: z.nativeEnum(TrackingMode).default(TrackingMode.NORMAL),
   batteryLevel: z.number().min(0).max(100).nullable().optional(),
   networkState: z.string().max(50).nullable().optional(),

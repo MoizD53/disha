@@ -10,13 +10,9 @@ import {
   MapPin,
   Radio,
   ShieldAlert,
-  Layers,
   Plus,
   Minus,
   LocateFixed,
-  Eye,
-  X,
-  Compass,
 } from "lucide-react";
 import { formatIST } from "@/lib/utils/time";
 
@@ -27,18 +23,21 @@ if (typeof window !== "undefined") {
 
 type MapLayerType = "streets" | "navigation" | "satellite" | "dark";
 
+// Configurable tile providers supporting production SLA layers via environment variables
 const MAP_STYLES: Record<MapLayerType, any> = {
-  navigation: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
+  navigation: process.env.NEXT_PUBLIC_MAP_STYLE_NAVIGATION || "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
   streets: {
     version: 8,
     sources: {
       "osm-tiles": {
         type: "raster",
-        tiles: [
-          "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        ],
+        tiles: process.env.NEXT_PUBLIC_MAP_TILES_STREETS
+          ? [process.env.NEXT_PUBLIC_MAP_TILES_STREETS]
+          : [
+              "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+              "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+              "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            ],
         tileSize: 256,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxzoom: 19,
@@ -59,12 +58,14 @@ const MAP_STYLES: Record<MapLayerType, any> = {
     sources: {
       "esri-imagery": {
         type: "raster",
-        tiles: [
-          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        ],
+        tiles: process.env.NEXT_PUBLIC_MAP_TILES_SATELLITE
+          ? [process.env.NEXT_PUBLIC_MAP_TILES_SATELLITE]
+          : [
+              "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            ],
         tileSize: 256,
         attribution: "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics",
-        maxzoom: 18, // Capped at 18: Prevents Esri from returning the 2521-byte "Map data not yet available" placeholder
+        maxzoom: 18,
       },
       "esri-labels": {
         type: "raster",
@@ -72,7 +73,7 @@ const MAP_STYLES: Record<MapLayerType, any> = {
           "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
         ],
         tileSize: 256,
-        maxzoom: 17, // Capped at 17 for place labels
+        maxzoom: 17,
       },
     },
     layers: [
@@ -92,16 +93,22 @@ const MAP_STYLES: Record<MapLayerType, any> = {
       },
     ],
   },
-  dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+  dark: process.env.NEXT_PUBLIC_MAP_STYLE_DARK || "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
 };
 
 /**
- * Builds a geodesic circular polygon GeoJSON feature for a given coordinate and radius in meters.
+ * Builds a geodesic circular polygon GeoJSON feature for a given coordinate and accuracy radius in meters.
  */
-function createAccuracyGeoJSON(lng: number, lat: number, accuracyMeters: number, isSOS: boolean) {
+function createAccuracyGeoJSON(
+  lng: number,
+  lat: number,
+  accuracyMeters: number,
+  isSOS: boolean,
+  rating?: "OPTIMAL" | "MODERATE" | "COARSE" | "HIGH" | "MEDIUM" | "LOW" | null
+) {
   const points = 64;
   const coords: [number, number][] = [];
-  const safeRadius = Math.max(accuracyMeters || 10, 5);
+  const safeRadius = Math.max(accuracyMeters || 10, 3);
   const distanceX = safeRadius / (111320 * Math.cos((lat * Math.PI) / 180));
   const distanceY = safeRadius / 110540;
 
@@ -123,6 +130,7 @@ function createAccuracyGeoJSON(lng: number, lat: number, accuracyMeters: number,
         properties: {
           isSOS,
           radius: safeRadius,
+          rating: rating || (accuracyMeters <= 10 ? "OPTIMAL" : accuracyMeters <= 30 ? "MODERATE" : "COARSE"),
         },
       },
     ],
@@ -205,7 +213,8 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
       selected.location.longitude,
       selected.location.latitude,
       selected.location.accuracy,
-      selected.sosStatus === "SOS ACTIVE"
+      selected.sosStatus === "SOS ACTIVE",
+      selected.location.accuracyRating
     );
   }, [selected]);
 
@@ -281,18 +290,35 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
               id="accuracy-fill"
               type="fill"
               paint={{
-                "fill-color": selected?.sosStatus === "SOS ACTIVE" ? "#e11d48" : "#0284c7",
-                "fill-opacity": 0.16,
+                "fill-color":
+                  selected?.sosStatus === "SOS ACTIVE"
+                    ? "#e11d48"
+                    : (selected?.location?.accuracyRating === "OPTIMAL" || (selected?.location?.accuracy ?? 99) <= 10)
+                      ? "#10b981"
+                      : (selected?.location?.accuracyRating === "MODERATE" || (selected?.location?.accuracy ?? 99) <= 30)
+                        ? "#0284c7"
+                        : "#f59e0b",
+                "fill-opacity": 0.18,
               }}
             />
             <Layer
               id="accuracy-stroke"
               type="line"
               paint={{
-                "line-color": selected?.sosStatus === "SOS ACTIVE" ? "#f43f5e" : "#0284c7",
+                "line-color":
+                  selected?.sosStatus === "SOS ACTIVE"
+                    ? "#f43f5e"
+                    : (selected?.location?.accuracyRating === "OPTIMAL" || (selected?.location?.accuracy ?? 99) <= 10)
+                      ? "#059669"
+                      : (selected?.location?.accuracyRating === "MODERATE" || (selected?.location?.accuracy ?? 99) <= 30)
+                        ? "#0284c7"
+                        : "#d97706",
                 "line-width": 2,
-                "line-opacity": 0.75,
-                "line-dasharray": [2, 2],
+                "line-opacity": 0.85,
+                "line-dasharray":
+                  selected?.location?.accuracyRating === "COARSE" || (selected?.location?.accuracy ?? 99) > 30
+                    ? [3, 2]
+                    : [1, 0],
               }}
             />
           </Source>
@@ -305,15 +331,19 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
           const isSelected = p.id === selectedId;
           const isStale = p.locationStatus === "STALE";
           const isOffline = p.networkStatus === "OFFLINE" || p.dutyStatus === "OFF DUTY";
-          const isLowAccuracy = !isStale && !isOffline && loc.accuracy > 50;
+          const isOptimal = loc.accuracy <= 10.0;
+          const isModerate = loc.accuracy > 10.0 && loc.accuracy <= 30.0;
+          const isCoarse = loc.accuracy > 30.0;
 
           const color = isSOS
             ? "#dc2626" // Red 600
             : isStale || isOffline
               ? "#64748b" // Slate 500
-              : isLowAccuracy
-                ? "#d97706" // Amber 600
-                : "#0284c7"; // Sky 600
+              : isOptimal
+                ? "#059669" // Emerald 600
+                : isModerate
+                  ? "#0284c7" // Sky 600
+                  : "#d97706"; // Amber 600
 
           const initials = p.name
             .split(" ")
@@ -336,7 +366,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
               <button
                 type="button"
                 aria-label={`Select personnel ${p.name}`}
-                title={`${p.name}${isStale ? " — Stale GPS" : ""}${isOffline ? " — Offline" : ""}${isLowAccuracy ? ` — Low Accuracy (±${Math.round(loc.accuracy)}m)` : ` — ±${Math.round(loc.accuracy)}m`}`}
+                title={`${p.name}${isStale ? " — Stale GPS" : ""}${isOffline ? " — Offline" : ""}${isOptimal ? ` — Optimal GPS (±${Math.round(loc.accuracy)}m)` : isModerate ? ` — Moderate (±${Math.round(loc.accuracy)}m)` : ` — Coarse Fix (±${Math.round(loc.accuracy)}m)`}`}
                 className="group relative flex flex-col items-center outline-none cursor-pointer"
               >
                 {/* SOS pulse effect */}
@@ -380,10 +410,18 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
                   }`}
                 >
                   <span>{p.name}</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded font-mono ${
-                    isLowAccuracy ? "bg-amber-950/80 text-amber-300 border border-amber-800/60" : "bg-slate-800 text-slate-400"
-                  }`}>
+                  <span
+                    className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold flex items-center gap-1 ${
+                      isOptimal
+                        ? "bg-emerald-950/80 text-emerald-300 border border-emerald-800/60"
+                        : isModerate
+                          ? "bg-sky-950/80 text-sky-300 border border-sky-800/60"
+                          : "bg-amber-950/80 text-amber-300 border border-amber-800/60"
+                    }`}
+                  >
                     ±{Math.round(loc.accuracy)}m
+                    {isOptimal && <span className="text-[8px] text-emerald-400 font-sans">≤10m</span>}
+                    {isCoarse && <span className="text-[8px] text-amber-400 font-sans">COARSE</span>}
                   </span>
                   {isStale && <span className="ml-0.5 text-[9px] text-amber-400 font-sans">STALE</span>}
                   {isOffline && <span className="ml-0.5 text-[9px] text-rose-400 font-sans">OFFLINE</span>}
@@ -410,7 +448,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
         </div>
       </div>
 
-      {/* Google Maps-Style Layer Switcher - Top Right */}
+      {/* Map Layer Switcher - Top Right */}
       <div className="absolute right-3 top-3 z-10 flex items-center bg-slate-900/95 border border-slate-700/80 rounded-xl p-1 shadow-2xl backdrop-blur-md">
         <button
           type="button"
@@ -420,7 +458,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
               ? "bg-sky-600 text-white shadow-sm"
               : "text-slate-300 hover:text-white hover:bg-slate-800"
           }`}
-          title="OpenStreetMap high-detail street view with complete road labels and landmarks"
+          title="High-detail street view with complete road labels and landmarks"
         >
           Streets
         </button>
@@ -432,7 +470,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
               ? "bg-sky-600 text-white shadow-sm"
               : "text-slate-300 hover:text-white hover:bg-slate-800"
           }`}
-          title="CARTO Voyager vector navigation style with complete street names, landmarks, and building footprints"
+          title="CARTO Voyager vector navigation style"
         >
           Navigation
         </button>
@@ -462,7 +500,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
         </button>
       </div>
 
-      {/* Google Maps-Style Floating Control Stack - Bottom Right */}
+      {/* Floating Control Stack - Bottom Right */}
       <div className="absolute right-3 bottom-20 sm:bottom-24 z-10 flex flex-col items-center gap-2">
         {/* Follow Officer Toggle */}
         {selected && (
@@ -519,45 +557,62 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
 
       {/* Selected Officer Live GPS Pill - Bottom Left */}
       {selected?.location && (
-        <div className="absolute left-3 bottom-8 sm:bottom-10 z-10 flex items-center gap-3 bg-slate-900/95 border border-slate-700/80 rounded-2xl p-3 shadow-2xl backdrop-blur-md max-w-[calc(100%-100px)] sm:max-w-md animate-in fade-in slide-in-from-bottom-2 duration-200">
+        <div className="absolute left-3 bottom-8 sm:bottom-10 z-10 flex items-center gap-3 bg-slate-900/95 border border-slate-700/80 rounded-2xl p-3 sm:p-3.5 shadow-2xl backdrop-blur-md max-w-[calc(100%-100px)] sm:max-w-md animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div
-            className={`w-3 h-3 rounded-full flex-shrink-0 ${
+            className={`w-3.5 h-3.5 rounded-full flex-shrink-0 ${
               selected.sosStatus === "SOS ACTIVE"
                 ? "bg-rose-500 animate-ping"
                 : selected.locationStatus === "TRACKING ACTIVE"
-                  ? "bg-emerald-400"
+                  ? (selected.location.accuracy <= 10 ? "bg-emerald-400 ring-2 ring-emerald-500/50" : selected.location.accuracy <= 30 ? "bg-sky-400" : "bg-amber-400")
                   : selected.locationStatus === "STALE"
                     ? "bg-amber-400"
                     : "bg-slate-400"
             }`}
           />
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-xs sm:text-sm text-white truncate">{selected.name}</span>
-              <span className={`text-[10px] font-semibold px-1.5 py-0.2 rounded font-mono ${
-                selected.location.accuracy > 50
-                  ? "bg-amber-950/80 text-amber-300 border border-amber-800/60"
-                  : "bg-slate-800 text-sky-400"
-              }`}>
+              <span
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded font-mono ${
+                  selected.location.accuracy <= 10
+                    ? "bg-emerald-950/80 text-emerald-300 border border-emerald-800/60"
+                    : selected.location.accuracy <= 30
+                      ? "bg-sky-950/80 text-sky-300 border border-sky-800/60"
+                      : "bg-amber-950/80 text-amber-300 border border-amber-800/60"
+                }`}
+              >
                 ±{selected.location.accuracy.toFixed(1)}m
               </span>
-              {selected.location.accuracyRating && (
-                <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-bold">
-                  {selected.location.accuracyRating}
+              <span
+                className={`text-[9px] uppercase px-1.5 py-0.5 rounded font-bold ${
+                  selected.location.accuracy <= 10
+                    ? "bg-emerald-900/60 text-emerald-300 border border-emerald-700/50"
+                    : selected.location.accuracy <= 30
+                      ? "bg-sky-900/60 text-sky-300 border border-sky-700/50"
+                      : "bg-amber-900/60 text-amber-300 border border-amber-700/50"
+                }`}
+              >
+                {selected.location.accuracy <= 10 ? "≤10m Target Met" : selected.location.accuracy <= 30 ? "Moderate" : "Coarse Fix"}
+              </span>
+              {selected.location.source && (
+                <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
+                  {selected.location.source}
                 </span>
               )}
             </div>
-            <div className="text-[11px] text-slate-400 font-mono mt-0.5 truncate">
+            <div className="text-[11px] text-slate-400 font-mono mt-1 truncate">
               {selected.location.latitude.toFixed(5)}, {selected.location.longitude.toFixed(5)}
               <span className="ml-2 text-slate-500 font-sans">
-                {formatIST(selected.location.recordedAt, true)}
+                {selected.location.accuracyAgeSeconds != null
+                  ? `${selected.location.accuracyAgeSeconds}s ago (${formatIST(selected.location.recordedAt, true)})`
+                  : formatIST(selected.location.recordedAt, true)}
               </span>
             </div>
           </div>
           <button
             type="button"
             onClick={handleRecenter}
-            className="text-[11px] font-semibold text-sky-400 hover:text-sky-300 px-2 py-1 bg-sky-950/50 border border-sky-900/60 rounded-lg cursor-pointer"
+            className="text-[11px] font-semibold text-sky-400 hover:text-sky-300 px-2.5 py-1.5 bg-sky-950/50 border border-sky-900/60 rounded-lg cursor-pointer"
           >
             Focus
           </button>

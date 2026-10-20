@@ -17,7 +17,8 @@ export type DashboardPersonnel = {
     latitude: number;
     longitude: number;
     accuracy: number;
-    accuracyRating?: "HIGH" | "MEDIUM" | "LOW" | null;
+    accuracyRating?: "OPTIMAL" | "MODERATE" | "COARSE" | "HIGH" | "MEDIUM" | "LOW" | null;
+    accuracyAgeSeconds?: number;
     source?: string;
     recordedAt: string;
   } | null;
