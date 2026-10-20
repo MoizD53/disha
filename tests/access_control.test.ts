@@ -182,12 +182,13 @@ test("Access Control & Account Management (Phase 1 RBAC)", async (t) => {
     assert.strictEqual(staffBody.staff.personnelCode, "STAFF-RBAC-01");
 
     // 4. Staff-authorized admin CAN create staff account without badge/designation/unit (auto-generated)
+    const testUsername = `rahul_test_${Date.now()}`;
     const createStaffWithout3Req = new Request("http://localhost/api/staff", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: `disha_session=${staffOnlyAdminToken}` },
       body: JSON.stringify({
         name: "Officer Rahul Verma",
-        username: "rahul_verma_field",
+        username: testUsername,
         password: "StaffPassword123!",
       }),
     });
@@ -195,8 +196,12 @@ test("Access Control & Account Management (Phase 1 RBAC)", async (t) => {
     assert.strictEqual(resCreateStaffWithout3.status, 200);
     const staffWithout3Body = await resCreateStaffWithout3.json();
     assert.strictEqual(staffWithout3Body.success, true);
-    assert.strictEqual(staffWithout3Body.staff.personnelCode, "RAHUL_VERMA_FIELD");
+    assert.strictEqual(staffWithout3Body.staff.personnelCode, testUsername.toUpperCase());
     assert.strictEqual(staffWithout3Body.staff.name, "Officer Rahul Verma");
+
+    // Cleanup created test staff
+    await prisma.personnel.delete({ where: { id: staffWithout3Body.staff.id } });
+    await prisma.user.delete({ where: { id: staffWithout3Body.staff.userId } });
   });
 
   await t.test("Admin Management: Super Admin can update admin, reset password, and cannot deactivate Super Admin", async () => {
@@ -282,6 +287,18 @@ test("Access Control & Account Management (Phase 1 RBAC)", async (t) => {
 
     const refreshedStaffUser = await prisma.user.findUnique({ where: { id: staffUser.id } });
     assert.strictEqual(refreshedStaffUser?.mustChangePassword, false);
+
+    // 3. Delete staff member
+    const { DELETE: deleteStaffHandler } = await import("../src/app/api/staff/[id]/route");
+    const deleteReq = new Request(`http://localhost/api/staff/${staffId}`, {
+      method: "DELETE",
+      headers: { Cookie: `disha_session=${staffOnlyAdminToken}` },
+    });
+    const deleteRes = await deleteStaffHandler(deleteReq, { params: Promise.resolve({ id: staffId }) });
+    assert.strictEqual(deleteRes.status, 200);
+
+    const deletedStaff = await prisma.personnel.findUnique({ where: { id: staffId } });
+    assert.strictEqual(deletedStaff, null);
   });
 
   await t.test("Live Map: Only admins with LIVE_MAP permission can fetch live overview", async () => {

@@ -20,6 +20,7 @@ import {
   X,
   AlertCircle,
   BadgeCheck,
+  Trash2,
 } from "lucide-react";
 
 export type StaffMember = {
@@ -60,6 +61,7 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [resetPasswordStaff, setResetPasswordStaff] = useState<StaffMember | null>(null);
+  const [deletingStaff, setDeletingStaff] = useState<StaffMember | null>(null);
 
   // Notification Banner
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -311,7 +313,7 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
                           <span>{staff.phone}</span>
                         </div>
                       ) : (
-                        <span className="text-slate-500 italic">—</span>
+                        <span className="text-slate-500 italic">â€”</span>
                       )}
                     </td>
 
@@ -386,6 +388,15 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
                         >
                           {staff.active ? <XCircle size={14} /> : <CheckCircle size={14} />}
                         </button>
+
+                        {/* Delete Staff Member */}
+                        <button
+                          onClick={() => setDeletingStaff(staff)}
+                          className="p-1.5 rounded-lg text-rose-400/80 hover:text-rose-300 hover:bg-rose-950/40 transition"
+                          title="Delete staff member permanently"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -430,6 +441,20 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
           onSuccess={() => {
             setResetPasswordStaff(null);
             showNotification(`Password for ${resetPasswordStaff.name} reset successfully.`);
+            fetchStaff();
+          }}
+        />
+      )}
+
+      {/* DELETE STAFF MODAL */}
+      {deletingStaff && (
+        <DeleteStaffModal
+          staff={deletingStaff}
+          onClose={() => setDeletingStaff(null)}
+          onSuccess={() => {
+            const deletedName = deletingStaff.name;
+            setDeletingStaff(null);
+            showNotification(`Staff member ${deletedName} deleted permanently.`);
             fetchStaff();
           }}
         />
@@ -894,6 +919,102 @@ function ResetStaffPasswordModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function DeleteStaffModal({
+  staff,
+  onClose,
+  onSuccess,
+}: {
+  staff: StaffMember;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleDelete() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/staff/${staff.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to delete staff member");
+        return;
+      }
+      onSuccess();
+    } catch {
+      setError("Network error while deleting staff member.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+      <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+        >
+          <X size={18} />
+        </button>
+
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center flex-shrink-0">
+            <Trash2 size={20} />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white">Delete Staff Member</h3>
+            <p className="text-xs text-slate-400">
+              Permanent removal of personnel and account access.
+            </p>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center gap-2 text-xs text-rose-300">
+            <AlertTriangle size={15} className="flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 mb-5">
+          <p className="text-xs text-slate-300">
+            Are you sure you want to permanently delete{" "}
+            <span className="font-bold text-white">{staff.name}</span> (
+            <span className="font-mono text-sky-400">@{staff.username}</span>)?
+          </p>
+          <p className="text-[11px] text-rose-400/90 mt-2 font-medium">
+            This will permanently remove their tracking sessions, devices, and credentials. This action cannot be undone.
+          </p>
+        </div>
+
+        <div className="flex items-center justify-end gap-2.5">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-xs font-semibold text-white transition shadow-lg shadow-rose-600/20"
+          >
+            {loading && <Loader2 size={13} className="animate-spin" />}
+            Delete Permanently
+          </button>
+        </div>
       </div>
     </div>
   );

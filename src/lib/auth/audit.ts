@@ -38,6 +38,7 @@ type AuditAction =
   | "LOGIN"
   | "CREATE_ADMIN"
   | "UPDATE_ADMIN"
+  | "DELETE_STAFF"
   | "RESET_PASSWORD"
   | "CHANGE_PASSWORD"
   | "CREATE_STAFF"

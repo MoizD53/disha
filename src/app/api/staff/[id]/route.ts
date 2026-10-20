@@ -101,3 +101,81 @@ export async function PATCH(req: Request, props: { params: Promise<{ id: string 
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request, props: { params: Promise<{ id: string }> }) {
+  try {
+    const { user: currentAdmin } = await requirePermission("STAFF_MANAGEMENT", req);
+    const params = await props.params;
+    const staffId = params.id;
+
+    const personnel = await prisma.personnel.findUnique({
+      where: { id: staffId },
+      include: { user: true, devices: true },
+    });
+
+    if (!personnel) {
+      return NextResponse.json({ error: "Staff record not found" }, { status: 404 });
+    }
+
+    const deviceIds = personnel.devices.map((d) => d.id);
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Delete credentials for all linked devices
+      if (deviceIds.length > 0) {
+        await tx.deviceCredential.deleteMany({
+          where: { deviceId: { in: deviceIds } },
+        });
+      }
+
+      // 2. Clear foreign key references on alerts if acknowledged/resolved by this user
+      await tx.alert.updateMany({
+        where: { acknowledgedBy: personnel.userId },
+        data: { acknowledgedBy: null },
+      });
+      await tx.alert.updateMany({
+        where: { resolvedBy: personnel.userId },
+        data: { resolvedBy: null },
+      });
+
+      // 3. Delete personnel-linked records
+      await tx.location.deleteMany({ where: { personnelId: staffId } });
+      await tx.locationEvent.deleteMany({ where: { personnelId: staffId } });
+      await tx.heartbeat.deleteMany({ where: { personnelId: staffId } });
+      await tx.alert.deleteMany({ where: { personnelId: staffId } });
+      await tx.sOSEvent.deleteMany({ where: { personnelId: staffId } });
+      await tx.dutySession.deleteMany({ where: { personnelId: staffId } });
+
+      // 4. Delete devices
+      if (deviceIds.length > 0) {
+        await tx.device.deleteMany({ where: { id: { in: deviceIds } } });
+      }
+
+      // 5. Delete personnel profile
+      await tx.personnel.delete({ where: { id: staffId } });
+
+      // 6. Delete user sessions
+      await tx.session.deleteMany({ where: { userId: personnel.userId } });
+
+      // 7. Delete user account
+      await tx.user.delete({ where: { id: personnel.userId } });
+    });
+
+    await logAudit({
+      actorId: currentAdmin.id,
+      action: "DELETE_STAFF",
+      targetType: "Personnel",
+      targetId: staffId,
+      metadata: { username: personnel.user.username, name: personnel.name },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: `Staff member ${personnel.name} deleted successfully.`,
+    });
+  } catch (error: any) {
+    if (error.message === "UNAUTHORIZED") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (error.message === "FORBIDDEN") return NextResponse.json({ error: "Forbidden: Staff Management permission required" }, { status: 403 });
+    console.error("DELETE /api/staff/[id] error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
