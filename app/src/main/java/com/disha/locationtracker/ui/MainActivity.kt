@@ -399,10 +399,26 @@ class MainActivity : AppCompatActivity() {
 
             if (!bgGranted) {
                 AlertDialog.Builder(this)
-                    .setTitle("Background Location Access")
-                    .setMessage("For transparent officer safety monitoring, DISHA requires 'Allow all the time' location access even when the screen is locked or the app is closed.")
-                    .setPositiveButton("Grant Access") { _, _ ->
-                        backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                    .setTitle("Continuous Background Tracking")
+                    .setMessage(
+                        "To ensure DISHA continues monitoring officer location when you switch to other apps (like WhatsApp or Calculator), press Home, or lock the screen, Android requires 'Allow all the time' location access.\n\n" +
+                        "1. Tap 'Configure Permission'\n" +
+                        "2. Select 'Permissions' -> 'Location'\n" +
+                        "3. Select 'Allow all the time'"
+                    )
+                    .setPositiveButton("Configure Permission") { _, _ ->
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            try {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = android.net.Uri.fromParts("package", packageName, null)
+                                }
+                                startActivity(intent)
+                            } catch (e: Exception) {
+                                backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                            }
+                        } else {
+                            backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                        }
                     }
                     .setNegativeButton("Later") { _, _ ->
                         checkBatteryOptimization()
@@ -421,8 +437,11 @@ class MainActivity : AppCompatActivity() {
             val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
             if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
                 AlertDialog.Builder(this)
-                    .setTitle("Battery Optimization")
-                    .setMessage("To ensure continuous 24/7 location monitoring when your device is locked or minimized, please allow DISHA to run Unrestricted in Battery Optimization settings.")
+                    .setTitle("Disable Battery Throttling")
+                    .setMessage(
+                        "To prevent Android and device manufacturers (Samsung, Xiaomi, OnePlus, Vivo) from freezing GPS tracking in the background:\n\n" +
+                        "Please allow DISHA to run 'Unrestricted' in Battery Optimization settings."
+                    )
                     .setPositiveButton("Open Settings") { _, _ ->
                         try {
                             val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {

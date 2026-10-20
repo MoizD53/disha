@@ -84,4 +84,32 @@ class TelemetryContractTest {
         val invalidLat = 95.0
         assertFalse(invalidLat in -90.0..90.0)
     }
+
+    @Test
+    fun testBatchIngestionContract() {
+        val payload = LocationTelemetryPayload(
+            clientEventId = "evt-batch-1",
+            latitude = 22.8333,
+            longitude = 74.2562,
+            accuracy = 8.0f,
+            recordedAt = "2026-10-20T10:00:00.000Z",
+            source = "FUSED",
+            trackingMode = "NORMAL",
+            batteryLevel = 95.0f,
+            networkState = "WIFI"
+        )
+        val request = com.disha.locationtracker.data.model.BatchIngestionRequest(
+            locations = listOf(payload)
+        )
+        val json = gson.toJson(request)
+        assertTrue(json.contains("\"locations\":["))
+        assertTrue(json.contains("\"clientEventId\":\"evt-batch-1\""))
+
+        val mockResponseBody = """{"locations":[{"clientEventId":"evt-batch-1","status":"accepted","locationId":"loc-123"}]}"""
+        val response = gson.fromJson(mockResponseBody, com.disha.locationtracker.data.model.BatchIngestionResponse::class.java)
+        assertNotNull(response.locations)
+        assertEquals(1, response.locations?.size)
+        assertEquals("accepted", response.locations?.first()?.status)
+        assertEquals("evt-batch-1", response.locations?.first()?.clientEventId)
+    }
 }

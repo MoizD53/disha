@@ -17,12 +17,16 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.disha.locationtracker.DishaApplication
 import com.disha.locationtracker.R
 import com.disha.locationtracker.ui.MainActivity
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
+import com.google.android.gms.location.*
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -31,19 +35,26 @@ class LocationTrackingService : Service(), LocationListener {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var wakeLock: PowerManager.WakeLock? = null
+
+    // Google Play Services Fused Location
+    private var fusedLocationClient: FusedLocationProviderClient? = null
+    private var locationCallback: LocationCallback? = null
+
+    // Fallback Android LocationManager
     private var locationManager: LocationManager? = null
 
     private var heartbeatJob: Job? = null
+    private var offlineSyncJob: Job? = null
     private var lastLocation: Location? = null
+    private var isTrackingStarted = false
 
     override fun onCreate() {
         super.onCreate()
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-
         acquireWakeLock()
         startInForeground()
         startLocationUpdates()
         startPeriodicHeartbeats()
+        startPeriodicOfflineSync()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -58,6 +69,13 @@ class LocationTrackingService : Service(), LocationListener {
                     DishaApplication.instance.repository.triggerSOS()
                     updateNotification(lastLocation)
                 }
+            }
+            ACTION_START_TRACKING -> {
+                // Idempotent: ensure updates are flowing and notification is current
+                if (!isTrackingStarted) {
+                    startLocationUpdates()
+                }
+                updateNotification(lastLocation)
             }
         }
         return START_STICKY
@@ -75,7 +93,7 @@ class LocationTrackingService : Service(), LocationListener {
     }
 
     private fun startInForeground() {
-        val notification = buildNotification("Starting location monitoring...")
+        val notification = buildNotification("Initializing persistent GPS tracking...")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
@@ -101,78 +119,137 @@ class LocationTrackingService : Service(), LocationListener {
             return
         }
 
+        // Check Google Play Services availability
+        val googleApi = GoogleApiAvailability.getInstance()
+        val playServicesAvailable = googleApi.isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS
+
+        if (playServicesAvailable) {
+            startFusedLocationUpdates()
+        } else {
+            startLocationManagerFallback()
+        }
+        isTrackingStarted = true
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startFusedLocationUpdates() {
+        try {
+            fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
+            val locationRequest = LocationRequest.Builder(
+                Priority.PRIORITY_HIGH_ACCURACY,
+                LOCATION_INTERVAL_MS
+            )
+                .setMinUpdateIntervalMillis(LOCATION_FASTEST_INTERVAL_MS)
+                .setMinUpdateDistanceMeters(LOCATION_MIN_DISTANCE_M)
+                .setMaxUpdateDelayMillis(LOCATION_MAX_WAIT_MS)
+                .setWaitForAccurateLocation(true)
+                .build()
+
+            locationCallback = object : LocationCallback() {
+                override fun onLocationResult(result: LocationResult) {
+                    val location = result.lastLocation ?: return
+                    handleNewLocation(location, "FUSED")
+                }
+
+                override fun onLocationAvailability(avail: LocationAvailability) {
+                    if (!avail.isLocationAvailable) {
+                        updateNotification(lastLocation, "Acquiring GPS fix (weak satellite signal)...")
+                    }
+                }
+            }
+
+            fusedLocationClient?.requestLocationUpdates(
+                locationRequest,
+                locationCallback!!,
+                Looper.getMainLooper()
+            )?.addOnFailureListener {
+                // If Play Services request fails, fall back to native LocationManager
+                startLocationManagerFallback()
+            }
+
+            // Immediately check last known location to prime state
+            fusedLocationClient?.lastLocation?.addOnSuccessListener { loc ->
+                if (loc != null && lastLocation == null) {
+                    handleNewLocation(loc, "FUSED_LAST_KNOWN")
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            startLocationManagerFallback()
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startLocationManagerFallback() {
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val isGpsEnabled = locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true
         val isNetEnabled = locationManager?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true
 
         if (!isGpsEnabled && !isNetEnabled) {
-            updateNotification(null, "Device location is turned off.")
+            updateNotification(null, "Device location is turned off in Android Settings.")
             return
         }
 
         try {
-            // Register for high accuracy GPS updates
             if (isGpsEnabled) {
                 locationManager?.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
-                    LOCATION_MIN_INTERVAL_MS,
+                    LOCATION_INTERVAL_MS,
                     LOCATION_MIN_DISTANCE_M,
-                    this
+                    this,
+                    Looper.getMainLooper()
                 )
-            }
-
-            // Register for cellular / Wi-Fi network location fallback
-            if (isNetEnabled) {
+            } else if (isNetEnabled) {
                 locationManager?.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
-                    LOCATION_MIN_INTERVAL_MS + 5000L,
+                    LOCATION_INTERVAL_MS + 2000L,
                     LOCATION_MIN_DISTANCE_M,
-                    this
+                    this,
+                    Looper.getMainLooper()
                 )
             }
 
-            // Also read immediate last known location if available
             val lastGps = locationManager?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            val lastNet = locationManager?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            val best = when {
-                lastGps != null && lastNet != null -> if (lastGps.time > lastNet.time) lastGps else lastNet
-                lastGps != null -> lastGps
-                else -> lastNet
-            }
-            best?.let { onLocationChanged(it) }
-        } catch (e: SecurityException) {
-            // Permission revoked at runtime
-            updateNotification(null, "Location permission missing or disabled.")
+            lastGps?.let { handleNewLocation(it, "GPS") }
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
     override fun onLocationChanged(location: Location) {
+        handleNewLocation(location, if (location.provider == LocationManager.GPS_PROVIDER) "GPS" else "NETWORK")
+    }
+
+    private fun handleNewLocation(location: Location, providerSource: String) {
         val prefs = DishaApplication.instance.prefs
-        // Never upload location after user logs out
         if (!prefs.isLoggedIn) {
             stopTracking()
             stopSelf()
             return
         }
 
-        lastLocation = location
+        val isSos = prefs.isSosActive
 
-        val source = when (location.provider) {
-            LocationManager.GPS_PROVIDER -> "GPS"
-            LocationManager.NETWORK_PROVIDER -> "NETWORK"
-            else -> "UNKNOWN"
+        // Accuracy filter: reject inaccurate jumps (> 50m) unless SOS emergency broadcast is active
+        if (location.hasAccuracy() && location.accuracy > MAX_ACCURACY_METRES && !isSos) {
+            updateNotification(lastLocation, "Filtering coarse fix (±${location.accuracy.toInt()}m)...")
+            return
         }
+
+        lastLocation = location
 
         val batteryLevel = getBatteryPercentage()
         val networkState = getNetworkType()
+        val fixTimestamp = if (location.time > 0L) location.time else System.currentTimeMillis()
 
         serviceScope.launch {
             DishaApplication.instance.repository.recordAndTransmitLocation(
                 latitude = location.latitude,
                 longitude = location.longitude,
                 accuracy = location.accuracy,
-                source = source,
+                source = providerSource,
+                locationTimestamp = fixTimestamp,
                 batteryLevel = batteryLevel,
                 networkState = networkState
             )
@@ -188,7 +265,7 @@ class LocationTrackingService : Service(), LocationListener {
     }
 
     override fun onProviderDisabled(provider: String) {
-        updateNotification(lastLocation, "GPS disabled on device")
+        updateNotification(lastLocation, "Location service disabled on device")
     }
 
     private fun startPeriodicHeartbeats() {
@@ -209,6 +286,21 @@ class LocationTrackingService : Service(), LocationListener {
         }
     }
 
+    private fun startPeriodicOfflineSync() {
+        offlineSyncJob = serviceScope.launch {
+            while (isActive) {
+                delay(OFFLINE_SYNC_INTERVAL_MS)
+                val prefs = DishaApplication.instance.prefs
+                if (!prefs.isLoggedIn) break
+                try {
+                    DishaApplication.instance.repository.syncOfflineQueue()
+                } catch (e: Exception) {
+                    // Suppress transient offline exceptions
+                }
+            }
+        }
+    }
+
     private fun updateNotification(location: Location?, extraStatus: String? = null) {
         val prefs = DishaApplication.instance.prefs
         val statusText = when {
@@ -218,14 +310,14 @@ class LocationTrackingService : Service(), LocationListener {
                 val timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(location.time))
                 String.format(
                     Locale.US,
-                    "Lat: %.5f, Lng: %.5f (±%.0fm, %s)",
+                    "Lat: %.5f, Lng: %.5f (±%.0fm) • %s",
                     location.latitude,
                     location.longitude,
                     location.accuracy,
                     timeStr
                 )
             }
-            else -> "Acquiring GPS fix..."
+            else -> "Acquiring high-accuracy GPS fix..."
         }
 
         val notification = buildNotification(statusText)
@@ -237,9 +329,9 @@ class LocationTrackingService : Service(), LocationListener {
     private fun buildNotification(contentText: String): Notification {
         val prefs = DishaApplication.instance.prefs
         val title = if (prefs.isSosActive) {
-            "DISHA - EMERGENCY SOS ACTIVE"
+            "DISHA — EMERGENCY SOS ACTIVE"
         } else {
-            "DISHA 24/7 Location Service"
+            "DISHA Field Tracker — Tracking Active"
         }
 
         val openActivityIntent = Intent(this, MainActivity::class.java).apply {
@@ -252,14 +344,30 @@ class LocationTrackingService : Service(), LocationListener {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Action button to stop tracking safely from the notification
+        val stopIntent = Intent(this, LocationTrackingService::class.java).apply {
+            action = ACTION_STOP_TRACKING
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this,
+            1003,
+            stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val builder = NotificationCompat.Builder(this, DishaApplication.CHANNEL_ID_TRACKING)
             .setContentTitle(title)
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_location)
             .setContentIntent(openActivityPendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .addAction(
+                R.drawable.ic_location,
+                "Stop Tracking",
+                stopPendingIntent
+            )
 
         return builder.build()
     }
@@ -303,12 +411,18 @@ class LocationTrackingService : Service(), LocationListener {
     }
 
     private fun stopTracking() {
+        isTrackingStarted = false
         try {
+            locationCallback?.let { fusedLocationClient?.removeLocationUpdates(it) }
+            locationCallback = null
+            fusedLocationClient = null
             locationManager?.removeUpdates(this)
+            locationManager = null
         } catch (e: Exception) {
             e.printStackTrace()
         }
         heartbeatJob?.cancel()
+        offlineSyncJob?.cancel()
         serviceScope.cancel()
 
         wakeLock?.let {
@@ -319,29 +433,6 @@ class LocationTrackingService : Service(), LocationListener {
         wakeLock = null
 
         DishaApplication.instance.prefs.isSosActive = false
-    }
-
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        super.onTaskRemoved(rootIntent)
-        val prefs = DishaApplication.instance.prefs
-        // If the officer is logged in, ensure foreground tracking service recovers if OS kills the task
-        if (prefs.isLoggedIn && hasLocationPermissions()) {
-            val restartIntent = Intent(applicationContext, LocationTrackingService::class.java).apply {
-                action = ACTION_START_TRACKING
-            }
-            val restartPendingIntent = PendingIntent.getService(
-                applicationContext,
-                1002,
-                restartIntent,
-                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val alarmManager = getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager
-            alarmManager?.set(
-                android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                android.os.SystemClock.elapsedRealtime() + 1000L,
-                restartPendingIntent
-            )
-        }
     }
 
     override fun onDestroy() {
@@ -357,9 +448,15 @@ class LocationTrackingService : Service(), LocationListener {
         const val ACTION_STOP_TRACKING = "com.disha.action.STOP_TRACKING"
         const val ACTION_TRIGGER_SOS = "com.disha.action.TRIGGER_SOS"
 
-        private const val LOCATION_MIN_INTERVAL_MS = 10_000L // 10 seconds
-        private const val LOCATION_MIN_DISTANCE_M = 5f // 5 meters
+        // 5-second interval while moving, 3-second fastest, 5-metre distance filter
+        private const val LOCATION_INTERVAL_MS = 5_000L
+        private const val LOCATION_FASTEST_INTERVAL_MS = 3_000L
+        private const val LOCATION_MIN_DISTANCE_M = 5f
+        private const val LOCATION_MAX_WAIT_MS = 10_000L
+        private const val MAX_ACCURACY_METRES = 50f
+
         private const val HEARTBEAT_INTERVAL_MS = 60_000L // 60 seconds
+        private const val OFFLINE_SYNC_INTERVAL_MS = 30_000L // 30 seconds
 
         fun start(context: Context) {
             val intent = Intent(context, LocationTrackingService::class.java).apply {

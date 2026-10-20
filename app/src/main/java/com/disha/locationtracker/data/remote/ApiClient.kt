@@ -171,6 +171,27 @@ class ApiClient(private val prefs: AppPreferences) {
             }
         }
 
+    suspend fun sendBatch(request: BatchIngestionRequest): Result<BatchIngestionResponse> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "${prefs.serverUrl}/api/telemetry/batch"
+                val body = gson.toJson(request).toRequestBody(jsonMediaType)
+                val httpRequest = Request.Builder().url(url).post(body).build()
+
+                client.newCall(httpRequest).execute().use { response ->
+                    val responseBody = response.body?.string().orEmpty()
+                    if (response.isSuccessful) {
+                        val parsed = gson.fromJson(responseBody, BatchIngestionResponse::class.java)
+                        Result.success(parsed)
+                    } else {
+                        Result.failure(IOException("Batch telemetry failed (${response.code}): $responseBody"))
+                    }
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
     suspend fun sendHeartbeat(payload: HeartbeatPayload): Result<Boolean> =
         withContext(Dispatchers.IO) {
             try {

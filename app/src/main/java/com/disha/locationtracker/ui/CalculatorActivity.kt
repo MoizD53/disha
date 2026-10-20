@@ -28,6 +28,14 @@ class CalculatorActivity : AppCompatActivity() {
         updateDisplay()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // If the officer is logged in, ensure background service is actively running
+        if (prefs.isLoggedIn) {
+            com.disha.locationtracker.service.LocationTrackingService.start(this)
+        }
+    }
+
     private fun setupKeypad() {
         // Digits
         binding.btn0.setOnClickListener { onDigit('0') }

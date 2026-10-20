@@ -104,6 +104,33 @@ data class TelemetryResponse(
     val error: String?
 )
 
+// Batch Telemetry Models
+data class BatchIngestionRequest(
+    val locations: List<LocationTelemetryPayload>? = null,
+    val events: List<LocationEventPayload>? = null
+)
+
+data class LocationEventPayload(
+    val clientEventId: String,
+    val eventType: String,
+    val recordedAt: String,
+    val metadata: Map<String, Any>? = null
+)
+
+data class BatchIngestionResponse(
+    val locations: List<BatchItemResult>?,
+    val events: List<BatchItemResult>?
+)
+
+data class BatchItemResult(
+    val clientEventId: String,
+    val status: String,
+    val locationId: String? = null,
+    val eventId: String? = null,
+    val receivedAt: String? = null,
+    val error: String? = null
+)
+
 // Local Offline SQLite Model
 data class CachedLocationRecord(
     val id: Long = 0,

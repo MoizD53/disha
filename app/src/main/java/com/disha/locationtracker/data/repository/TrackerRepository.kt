@@ -5,9 +5,7 @@ import androidx.lifecycle.MutableLiveData
 import com.disha.locationtracker.DishaApplication
 import com.disha.locationtracker.data.local.AppPreferences
 import com.disha.locationtracker.data.local.OfflineLocationDbHelper
-import com.disha.locationtracker.data.model.CachedLocationRecord
-import com.disha.locationtracker.data.model.HeartbeatPayload
-import com.disha.locationtracker.data.model.LocationTelemetryPayload
+import com.disha.locationtracker.data.model.*
 import com.disha.locationtracker.data.remote.ApiClient
 import com.disha.locationtracker.service.LocationTrackingService
 import kotlinx.coroutines.Dispatchers
@@ -53,11 +51,12 @@ class TrackerRepository(
         longitude: Double,
         accuracy: Float,
         source: String,
-        batteryLevel: Float?,
-        networkState: String?
+        locationTimestamp: Long = System.currentTimeMillis(),
+        batteryLevel: Float? = null,
+        networkState: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val clientEventId = UUID.randomUUID().toString()
-        val recordedAt = getIsoTimestamp()
+        val recordedAt = getIsoTimestamp(Date(locationTimestamp))
         val trackingMode = if (prefs.isSosActive) "SOS" else "NORMAL"
 
         val payload = LocationTelemetryPayload(
@@ -117,10 +116,11 @@ class TrackerRepository(
     }
 
     private suspend fun syncOfflineQueueInternal(): Int {
-        val pending = dbHelper.getPendingLocations(limit = 25)
-        var count = 0
-        for (item in pending) {
-            val payload = LocationTelemetryPayload(
+        val pending = dbHelper.getPendingLocations(limit = 50)
+        if (pending.isEmpty()) return 0
+
+        val payloads = pending.map { item ->
+            LocationTelemetryPayload(
                 clientEventId = item.clientEventId,
                 latitude = item.latitude,
                 longitude = item.longitude,
@@ -131,26 +131,60 @@ class TrackerRepository(
                 batteryLevel = item.batteryLevel,
                 networkState = item.networkState
             )
-            val result = apiClient.sendLocation(payload)
-            if (result.isSuccess) {
-                dbHelper.deleteLocationByEventId(item.clientEventId)
-                count++
-            } else {
-                val errorMsg = result.exceptionOrNull()?.message.orEmpty()
-                if (errorMsg.contains("401") || errorMsg.contains("403")) {
-                    prefs.dutyStatus = "OFF_DUTY"
-                    LocationTrackingService.stop(DishaApplication.instance)
+        }
+
+        val request = BatchIngestionRequest(locations = payloads)
+        val result = apiClient.sendBatch(request)
+
+        if (result.isSuccess) {
+            val response = result.getOrNull()
+            var count = 0
+            response?.locations?.forEach { item ->
+                if (item.status == "accepted" || item.status == "deduplicated") {
+                    dbHelper.deleteLocationByEventId(item.clientEventId)
+                    count++
+                }
+            }
+            if (count > 0) {
+                val timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                _lastSentTime.postValue("$timeStr (Synced $count offline)")
+            }
+            return count
+        } else {
+            val errorMsg = result.exceptionOrNull()?.message.orEmpty()
+            if (errorMsg.contains("401") || errorMsg.contains("403")) {
+                prefs.dutyStatus = "OFF_DUTY"
+                LocationTrackingService.stop(DishaApplication.instance)
+                return 0
+            }
+            // Fallback to sequential if batch fails
+            var count = 0
+            for (item in pending.take(10)) {
+                val payload = LocationTelemetryPayload(
+                    clientEventId = item.clientEventId,
+                    latitude = item.latitude,
+                    longitude = item.longitude,
+                    accuracy = item.accuracy,
+                    recordedAt = item.recordedAt,
+                    source = item.source,
+                    trackingMode = item.trackingMode,
+                    batteryLevel = item.batteryLevel,
+                    networkState = item.networkState
+                )
+                val singleResult = apiClient.sendLocation(payload)
+                if (singleResult.isSuccess) {
+                    dbHelper.deleteLocationByEventId(item.clientEventId)
+                    count++
+                } else {
                     break
                 }
-                // If temporary network failure, break early and retry later
-                break
             }
+            if (count > 0) {
+                val timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                _lastSentTime.postValue("$timeStr (Synced $count offline)")
+            }
+            return count
         }
-        if (count > 0) {
-            val timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-            _lastSentTime.postValue("$timeStr (Synced $count offline)")
-        }
-        return count
     }
 
     suspend fun sendHeartbeat(
