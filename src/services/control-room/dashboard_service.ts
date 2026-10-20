@@ -6,7 +6,7 @@ import {
 } from "@/lib/config/inactivity";
 
 export async function getDashboardOverview() {
-  const [personnelList, latestLocations, latestEvents, latestHeartbeats] = await Promise.all([
+  const [personnelList, latestLocations, latestEvents, latestHeartbeats, recentLocations] = await Promise.all([
     prisma.personnel.findMany({
       where: { active: true },
       include: {
@@ -49,6 +49,13 @@ export async function getDashboardOverview() {
         GROUP BY "personnelId"
       ) max_hb ON h."personnelId" = max_hb."personnelId" AND h."recordedAt" = max_hb.max_time
     `,
+    prisma.location.findMany({
+      where: {
+        recordedAt: { gte: new Date(Date.now() - 5 * 60 * 1000) },
+      },
+      orderBy: { recordedAt: "desc" },
+      take: 300,
+    }),
   ]);
 
   const locMap = new Map(latestLocations.map((l) => [l.personnelId, l]));
@@ -60,8 +67,21 @@ export async function getDashboardOverview() {
   const HB_TIMEOUT_MS = getHeartbeatTimeoutMs(); // 2 mins default
   const HB_STALE_THRESHOLD_MS = getHeartbeatStaleMs(); // 75 secs default
 
+  // Prefer fresh verified fixes (accuracy <= 20m, age <= 90s) over coarse cellular bounces
+  const verifiedRecentMap = new Map<string, any>();
+  for (const rLoc of recentLocations) {
+    if (!verifiedRecentMap.has(rLoc.personnelId) && Number(rLoc.accuracy) <= 20.0) {
+      const ageMs = now - new Date(rLoc.recordedAt).getTime();
+      if (ageMs <= 90_000) {
+        verifiedRecentMap.set(rLoc.personnelId, rLoc);
+      }
+    }
+  }
+
   return personnelList.map((p) => {
-    const loc = locMap.get(p.id);
+    const latestRaw = locMap.get(p.id);
+    const verifiedRecent = verifiedRecentMap.get(p.id);
+    const loc = verifiedRecent || latestRaw;
     const ev = evMap.get(p.id);
     const hb = hbMap.get(p.id);
     const activeDuty = p.dutySessions[0] || null;
@@ -146,8 +166,8 @@ export async function getDashboardOverview() {
 
     if (accuracy !== null) {
       if (accuracy <= 10.0) accuracyRating = "OPTIMAL";
-      else if (accuracy <= 30.0) accuracyRating = "MODERATE";
-      else accuracyRating = "COARSE";
+      else if (accuracy <= 20.0) accuracyRating = "MODERATE"; // Verified target <= 20m
+      else accuracyRating = "COARSE"; // > 20m is Low Accuracy
     }
 
     return {

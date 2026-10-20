@@ -8,6 +8,7 @@ import {
   Shield,
   Users,
   MapPin,
+  Route,
   LogOut,
   KeyRound,
   User,
@@ -64,6 +65,14 @@ export default function DashboardHeader({ initialUser }: { initialUser: HeaderUs
       icon: MapPin,
       visible: canAccessMap,
       badge: "Tracking",
+    },
+    {
+      name: "Location Trail",
+      shortName: "Trail",
+      href: "/dashboard/trail",
+      icon: Route,
+      visible: canAccessMap,
+      badge: "History",
     },
   ].filter((item) => item.visible);
 

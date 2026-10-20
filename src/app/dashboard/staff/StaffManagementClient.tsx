@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import {
   Users,
   UserPlus,
@@ -21,6 +22,7 @@ import {
   AlertCircle,
   BadgeCheck,
   Trash2,
+  Route,
 } from "lucide-react";
 import { formatIST } from "@/lib/utils/time";
 
@@ -397,6 +399,15 @@ export default function StaffManagementClient({ initialStaff }: { initialStaff?:
                     {/* Actions */}
                     <td className="py-3.5 px-4 text-right whitespace-nowrap">
                       <div className="inline-flex items-center gap-1.5">
+                        {/* View Location Trail */}
+                        <Link
+                          href={`/dashboard/trail?personnelId=${staff.id}`}
+                          className="p-1.5 rounded-lg text-sky-400 hover:text-white hover:bg-sky-950/60 transition"
+                          title="View Location Trail & Movement History"
+                        >
+                          <Route size={14} />
+                        </Link>
+
                         {/* Edit Staff */}
                         <button
                           onClick={() => setEditingStaff(staff)}

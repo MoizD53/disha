@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import Link from "next/link";
 import Map, { Marker, Source, Layer, ScaleControl, MapRef } from "react-map-gl/maplibre";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -13,6 +14,10 @@ import {
   Plus,
   Minus,
   LocateFixed,
+  Maximize2,
+  Eye,
+  EyeOff,
+  Route,
 } from "lucide-react";
 import { formatIST } from "@/lib/utils/time";
 
@@ -23,76 +28,65 @@ if (typeof window !== "undefined") {
 
 type MapLayerType = "streets" | "navigation" | "satellite" | "dark";
 
-// Configurable tile providers supporting production SLA layers via environment variables
+// Configurable tile providers supporting production SLA layers, high-res satellite, and sub-meter precision
 const MAP_STYLES: Record<MapLayerType, any> = {
-  navigation: process.env.NEXT_PUBLIC_MAP_STYLE_NAVIGATION || "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
-  streets: {
-    version: 8,
-    sources: {
-      "osm-tiles": {
-        type: "raster",
-        tiles: process.env.NEXT_PUBLIC_MAP_TILES_STREETS
-          ? [process.env.NEXT_PUBLIC_MAP_TILES_STREETS]
-          : [
-              "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-              "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-              "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            ],
-        tileSize: 256,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxzoom: 19,
-      },
-    },
-    layers: [
-      {
-        id: "osm-tiles-layer",
-        type: "raster",
-        source: "osm-tiles",
-        minzoom: 0,
-        maxzoom: 19,
-      },
-    ],
-  },
   satellite: {
     version: 8,
     sources: {
-      "esri-imagery": {
+      "satellite-hybrid-tiles": {
         type: "raster",
         tiles: process.env.NEXT_PUBLIC_MAP_TILES_SATELLITE
           ? [process.env.NEXT_PUBLIC_MAP_TILES_SATELLITE]
           : [
-              "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+              "https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}",
+              "https://mt1.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}",
+              "https://mt2.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}",
+              "https://mt3.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}",
             ],
         tileSize: 256,
-        attribution: "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics",
-        maxzoom: 18,
-      },
-      "esri-labels": {
-        type: "raster",
-        tiles: [
-          "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-        ],
-        tileSize: 256,
-        maxzoom: 17,
+        attribution: '&copy; <a href="https://maps.google.com" target="_blank" rel="noreferrer">Google Maps</a> &mdash; High-Precision Satellite & Street Labels',
+        maxzoom: 22,
       },
     },
     layers: [
       {
-        id: "imagery-layer",
+        id: "satellite-hybrid-layer",
         type: "raster",
-        source: "esri-imagery",
+        source: "satellite-hybrid-tiles",
         minzoom: 0,
-        maxzoom: 19,
-      },
-      {
-        id: "labels-layer",
-        type: "raster",
-        source: "esri-labels",
-        minzoom: 0,
-        maxzoom: 19,
+        maxzoom: 22,
       },
     ],
   },
+  streets: {
+    version: 8,
+    sources: {
+      "street-tiles": {
+        type: "raster",
+        tiles: process.env.NEXT_PUBLIC_MAP_TILES_STREETS
+          ? [process.env.NEXT_PUBLIC_MAP_TILES_STREETS]
+          : [
+              "https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}",
+              "https://mt1.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}",
+              "https://mt2.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}",
+              "https://mt3.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}",
+            ],
+        tileSize: 256,
+        attribution: '&copy; <a href="https://maps.google.com" target="_blank" rel="noreferrer">Google Maps</a> &mdash; Detailed Street & POI Network',
+        maxzoom: 22,
+      },
+    },
+    layers: [
+      {
+        id: "street-layer",
+        type: "raster",
+        source: "street-tiles",
+        minzoom: 0,
+        maxzoom: 22,
+      },
+    ],
+  },
+  navigation: process.env.NEXT_PUBLIC_MAP_STYLE_NAVIGATION || "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
   dark: process.env.NEXT_PUBLIC_MAP_STYLE_DARK || "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
 };
 
@@ -147,8 +141,9 @@ interface Props {
 export default function MapComponent({ data, selectedId, onMarkerClick, className = "" }: Props) {
   const mapRef = useRef<MapRef | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [layerType, setLayerType] = useState<MapLayerType>("navigation");
+  const [layerType, setLayerType] = useState<MapLayerType>("satellite");
   const [followMode, setFollowMode] = useState(false);
+  const [showAccuracyCircle, setShowAccuracyCircle] = useState(true);
 
   const located = useMemo(
     () =>
@@ -179,18 +174,18 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
         ...prev,
         longitude: first.location!.longitude,
         latitude: first.location!.latitude,
-        zoom: 15,
+        zoom: 16,
       }));
     }
   }, [mapLoaded, located, viewState.zoom, viewState.longitude]);
 
-  // Smooth fly-to when an officer is selected
+  // Smooth fly-to when an officer is selected (zooms into street/building context at 18.5x)
   useEffect(() => {
     if (!selected?.location || !mapLoaded || !mapRef.current) return;
 
     mapRef.current.flyTo({
       center: [selected.location.longitude, selected.location.latitude],
-      zoom: 16.5,
+      zoom: 18.5,
       duration: 1000,
       essential: true,
     });
@@ -225,7 +220,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
       const p = located[0];
       mapRef.current.flyTo({
         center: [p.location!.longitude, p.location!.latitude],
-        zoom: 16,
+        zoom: 18.5,
         duration: 1000,
       });
       return;
@@ -238,7 +233,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
 
     mapRef.current.fitBounds(bounds, {
       padding: { top: 80, bottom: 80, left: 60, right: 60 },
-      maxZoom: 16,
+      maxZoom: 18.5,
       duration: 1000,
     });
   }, [located]);
@@ -255,11 +250,23 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
     if (selected?.location) {
       mapRef.current?.flyTo({
         center: [selected.location.longitude, selected.location.latitude],
-        zoom: 16.5,
+        zoom: 18.5,
         duration: 800,
       });
     } else {
       focusAll();
+    }
+  };
+
+  const handleDeepZoom = () => {
+    if (selected?.location) {
+      mapRef.current?.flyTo({
+        center: [selected.location.longitude, selected.location.latitude],
+        zoom: 20.5,
+        duration: 800,
+      });
+    } else if (mapRef.current) {
+      mapRef.current.zoomTo(Math.min(viewState.zoom + 2, 22), { duration: 400 });
     }
   };
 
@@ -268,12 +275,14 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
       <Map
         ref={mapRef}
         {...viewState}
+        maxZoom={22}
+        minZoom={3}
         onMove={(evt) => setViewState(evt.viewState)}
         onLoad={() => setMapLoaded(true)}
         onError={(e) => {
           console.warn("Map style/tile event:", e?.error?.message || e);
-          if (layerType !== "navigation") {
-            setLayerType("navigation");
+          if (layerType !== "streets") {
+            setLayerType("streets");
           }
         }}
         mapStyle={MAP_STYLES[layerType]}
@@ -283,8 +292,8 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
       >
         <ScaleControl position="bottom-left" />
 
-        {/* GPS Accuracy Radius Circle for selected officer */}
-        {accuracyCircle && (
+        {/* GPS Accuracy Radius Circle for selected officer (toggable) */}
+        {showAccuracyCircle && accuracyCircle && (
           <Source id="accuracy-source" type="geojson" data={accuracyCircle}>
             <Layer
               id="accuracy-fill"
@@ -399,6 +408,16 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
                   style={{ backgroundColor: color }}
                 />
 
+                {/* Ground Coordinate Pinpoint Reticle - shows exact spot on the map beneath the pin */}
+                <div className="relative flex items-center justify-center -mt-0.5 pointer-events-none">
+                  <span className="h-2.5 w-2.5 rounded-full bg-white ring-2 ring-slate-950 shadow-md flex items-center justify-center">
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+                  </span>
+                  {isSelected && (
+                    <span className="absolute h-6 w-6 rounded-full border-2 border-sky-400 bg-sky-400/25 animate-ping" />
+                  )}
+                </div>
+
                 {/* Name Callout with Accuracy Badge */}
                 <span
                   className={`mt-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-bold shadow-md transition-all flex items-center gap-1.5 ${
@@ -458,7 +477,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
               ? "bg-sky-600 text-white shadow-sm"
               : "text-slate-300 hover:text-white hover:bg-slate-800"
           }`}
-          title="High-detail street view with complete road labels and landmarks"
+          title="High-detail street roadmap showing building footprints, road names, and alleys"
         >
           Streets
         </button>
@@ -482,7 +501,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
               ? "bg-sky-600 text-white shadow-sm"
               : "text-slate-300 hover:text-white hover:bg-slate-800"
           }`}
-          title="Satellite imagery with street and landmark overlay"
+          title="High-precision aerial satellite view with street names, alleys, and landmarks"
         >
           Satellite
         </button>
@@ -520,29 +539,46 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
           </button>
         )}
 
+        {/* Deep Zoom (20.5x Rooftop Precision) */}
+        <button
+          type="button"
+          onClick={handleDeepZoom}
+          aria-label="Deep zoom into rooftop level"
+          title="Ultra Deep Zoom (20.5x Rooftop & Doorstep Precision)"
+          className="flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-xl border border-sky-600/80 bg-slate-900/95 text-sky-400 shadow-xl backdrop-blur-md transition-all hover:bg-sky-950 hover:text-sky-300 active:scale-95 cursor-pointer"
+        >
+          <Maximize2 size={18} />
+        </button>
+
         {/* Recenter Button */}
         <button
           type="button"
           onClick={handleRecenter}
           disabled={located.length === 0}
           aria-label="Recenter map"
-          title={selected ? `Center on ${selected.name}` : "Fit all personnel"}
+          title={selected ? `Center on ${selected.name} (18.5x)` : "Fit all personnel"}
           className="flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-xl border border-slate-700 bg-slate-900/95 text-slate-200 shadow-xl backdrop-blur-md transition-all hover:bg-slate-800 hover:text-white active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
         >
           <Crosshair size={18} />
         </button>
 
-        {/* Zoom Controls */}
-        <div className="flex flex-col rounded-xl border border-slate-700 bg-slate-900/95 shadow-xl backdrop-blur-md overflow-hidden">
+        {/* Zoom Controls with Current Level Badge */}
+        <div className="flex flex-col items-center rounded-xl border border-slate-700 bg-slate-900/95 shadow-xl backdrop-blur-md overflow-hidden">
           <button
             type="button"
             onClick={handleZoomIn}
             aria-label="Zoom in"
-            title="Zoom in"
+            title="Zoom in (up to 22x deep zoom)"
             className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center text-slate-200 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer border-b border-slate-800"
           >
             <Plus size={18} />
           </button>
+          <div
+            className="px-1 py-1 text-[9px] font-mono font-bold text-sky-400 text-center select-none border-b border-slate-800 w-full bg-slate-950/60"
+            title={`Current zoom level: ${viewState.zoom.toFixed(1)}`}
+          >
+            {viewState.zoom.toFixed(1)}z
+          </div>
           <button
             type="button"
             onClick={handleZoomOut}
@@ -557,7 +593,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
 
       {/* Selected Officer Live GPS Pill - Bottom Left */}
       {selected?.location && (
-        <div className="absolute left-3 bottom-8 sm:bottom-10 z-10 flex items-center gap-3 bg-slate-900/95 border border-slate-700/80 rounded-2xl p-3 sm:p-3.5 shadow-2xl backdrop-blur-md max-w-[calc(100%-100px)] sm:max-w-md animate-in fade-in slide-in-from-bottom-2 duration-200">
+        <div className="absolute left-3 bottom-8 sm:bottom-10 z-10 flex items-center gap-3 bg-slate-900/95 border border-slate-700/80 rounded-2xl p-3 sm:p-3.5 shadow-2xl backdrop-blur-md max-w-[calc(100%-100px)] sm:max-w-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div
             className={`w-3.5 h-3.5 rounded-full flex-shrink-0 ${
               selected.sosStatus === "SOS ACTIVE"
@@ -576,7 +612,7 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
                 className={`text-[10px] font-bold px-1.5 py-0.5 rounded font-mono ${
                   selected.location.accuracy <= 10
                     ? "bg-emerald-950/80 text-emerald-300 border border-emerald-800/60"
-                    : selected.location.accuracy <= 30
+                    : selected.location.accuracy <= 20
                       ? "bg-sky-950/80 text-sky-300 border border-sky-800/60"
                       : "bg-amber-950/80 text-amber-300 border border-amber-800/60"
                 }`}
@@ -587,12 +623,12 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
                 className={`text-[9px] uppercase px-1.5 py-0.5 rounded font-bold ${
                   selected.location.accuracy <= 10
                     ? "bg-emerald-900/60 text-emerald-300 border border-emerald-700/50"
-                    : selected.location.accuracy <= 30
+                    : selected.location.accuracy <= 20
                       ? "bg-sky-900/60 text-sky-300 border border-sky-700/50"
                       : "bg-amber-900/60 text-amber-300 border border-amber-700/50"
                 }`}
               >
-                {selected.location.accuracy <= 10 ? "≤10m Target Met" : selected.location.accuracy <= 30 ? "Moderate" : "Coarse Fix"}
+                {selected.location.accuracy <= 10 ? "≤10m Optimal" : selected.location.accuracy <= 20 ? "≤20m Verified" : "Low Accuracy"}
               </span>
               {selected.location.source && (
                 <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
@@ -609,13 +645,45 @@ export default function MapComponent({ data, selectedId, onMarkerClick, classNam
               </span>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleRecenter}
-            className="text-[11px] font-semibold text-sky-400 hover:text-sky-300 px-2.5 py-1.5 bg-sky-950/50 border border-sky-900/60 rounded-lg cursor-pointer"
-          >
-            Focus
-          </button>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <Link
+              href={`/dashboard/trail?personnelId=${selected.id}`}
+              title="View full location trail for this officer"
+              className="text-[11px] font-semibold text-sky-400 hover:text-sky-300 px-2 py-1.5 bg-sky-950/50 border border-sky-900/60 rounded-lg cursor-pointer flex items-center gap-1"
+            >
+              <Route size={12} />
+              <span>Trail</span>
+            </Link>
+            <button
+              type="button"
+              onClick={handleDeepZoom}
+              title="Deep Zoom (20.5x Rooftop Precision)"
+              className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 px-2 py-1.5 bg-emerald-950/50 border border-emerald-900/60 rounded-lg cursor-pointer flex items-center gap-1"
+            >
+              <Maximize2 size={12} />
+              <span>Deep</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRecenter}
+              title="Focus on officer (18.5x)"
+              className="text-[11px] font-semibold text-slate-300 hover:text-white px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-lg cursor-pointer"
+            >
+              Focus
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAccuracyCircle(!showAccuracyCircle)}
+              title={showAccuracyCircle ? "Hide Accuracy Radius Circle" : "Show Accuracy Radius Circle"}
+              className={`p-1.5 border rounded-lg cursor-pointer transition-colors ${
+                showAccuracyCircle
+                  ? "bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white"
+                  : "bg-slate-950 border-slate-800 text-slate-500 hover:text-slate-400"
+              }`}
+            >
+              {showAccuracyCircle ? <Eye size={14} /> : <EyeOff size={14} />}
+            </button>
+          </div>
         </div>
       )}
 

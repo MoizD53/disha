@@ -42,7 +42,7 @@ test("Control Room Dashboard API Logic", async (t) => {
     assert.strictEqual(p.locationStatus, "OFF DUTY");
     assert.strictEqual(p.sosStatus, "NONE");
     assert.strictEqual(p.deviceStatus, "OFFLINE"); // Changed because no heartbeat exists
-    assert.strictEqual(p.networkStatus, "UNKNOWN"); // Changed because no heartbeat exists
+    assert.strictEqual(p.networkStatus, "OFFLINE"); // No heartbeat -> OFFLINE
     assert.ok(p.location);
   });
 

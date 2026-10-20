@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { DashboardPersonnel } from "@/hooks/useDashboardData";
 import { formatIST } from "@/lib/utils/time";
 import {
@@ -17,6 +18,7 @@ import {
   MapPin,
   Loader2,
   History,
+  Route,
 } from "lucide-react";
 
 interface Props {
@@ -293,6 +295,14 @@ export default function PersonnelDetail({ personnel, onClose, className = "" }: 
                 {personnel.lastSeen ? formatIST(personnel.lastSeen, true) : "Never"}
               </span>
             </div>
+
+            <Link
+              href={`/dashboard/trail?personnelId=${personnel.id}`}
+              className="mt-3 w-full py-2 px-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-sky-600/20"
+            >
+              <Route size={14} />
+              <span>View Route Trail &amp; Movement History</span>
+            </Link>
           </div>
         </section>
 
