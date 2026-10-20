@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth, requirePersonnelMatch } from "@/lib/auth/authorization";
+import { requirePersonnelMatch, requireDeviceAuth } from "@/lib/auth/authorization";
 import { endDuty, DutyError } from "@/services/duty/duty_service";
 
 const endDutySchema = z.object({
@@ -9,15 +9,27 @@ const endDutySchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const { user } = await requireAuth();
-    
     const body = await req.json();
     const { personnelId } = endDutySchema.parse(body);
 
-    // Enforce that FIELD_PERSONNEL can only end their own duty
-    await requirePersonnelMatch(personnelId);
+    const authHeader = req.headers.get("authorization");
+    let actorId: string;
 
-    const session = await endDuty(personnelId, user.id);
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const { personnel } = await requireDeviceAuth(req);
+      if (personnel.id !== personnelId) {
+        return NextResponse.json(
+          { error: "Forbidden: Device credential does not belong to specified personnel" },
+          { status: 403 }
+        );
+      }
+      actorId = personnel.userId;
+    } else {
+      const { user } = await requirePersonnelMatch(personnelId, req);
+      actorId = user.id;
+    }
+
+    const session = await endDuty(personnelId, actorId);
 
     return NextResponse.json({ success: true, session });
   } catch (error: any) {

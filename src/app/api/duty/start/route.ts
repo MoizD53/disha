@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth, requirePersonnelMatch } from "@/lib/auth/authorization";
+import { requirePersonnelMatch, requireDeviceAuth } from "@/lib/auth/authorization";
 import { startDuty, DutyError } from "@/services/duty/duty_service";
 
 const startDutySchema = z.object({
@@ -10,15 +10,33 @@ const startDutySchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const { user } = await requireAuth();
-    
     const body = await req.json();
     const { personnelId, deviceIdentifier } = startDutySchema.parse(body);
 
-    // Enforce that FIELD_PERSONNEL can only start their own duty
-    await requirePersonnelMatch(personnelId);
+    const authHeader = req.headers.get("authorization");
+    let actorId: string;
 
-    const session = await startDuty(personnelId, deviceIdentifier, user.id);
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const { device, personnel } = await requireDeviceAuth(req);
+      if (personnel.id !== personnelId) {
+        return NextResponse.json(
+          { error: "Forbidden: Device credential does not belong to specified personnel" },
+          { status: 403 }
+        );
+      }
+      if (device.deviceIdentifier !== deviceIdentifier) {
+        return NextResponse.json(
+          { error: "Forbidden: Device identifier does not match credential" },
+          { status: 403 }
+        );
+      }
+      actorId = personnel.userId;
+    } else {
+      const { user } = await requirePersonnelMatch(personnelId, req);
+      actorId = user.id;
+    }
+
+    const session = await startDuty(personnelId, deviceIdentifier, actorId);
 
     return NextResponse.json({ success: true, session });
   } catch (error: any) {

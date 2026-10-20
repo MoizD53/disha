@@ -30,9 +30,10 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const { username, password } = loginSchema.parse(body);
+    const normalizedUsername = username.trim().toLowerCase();
 
     const user = await prisma.user.findUnique({
-      where: { username },
+      where: { username: normalizedUsername },
     });
 
     if (!user || user.status !== "ACTIVE") {

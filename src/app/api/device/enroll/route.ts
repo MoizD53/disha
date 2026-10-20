@@ -23,10 +23,11 @@ export async function POST(req: Request) {
     }
 
     const { username, password, deviceIdentifier, platform, appVersion } = result.data;
+    const normalizedUsername = username.trim().toLowerCase();
 
     // Verify User
     const user = await prisma.user.findUnique({
-      where: { username },
+      where: { username: normalizedUsername },
       include: { personnel: true },
     });
 
